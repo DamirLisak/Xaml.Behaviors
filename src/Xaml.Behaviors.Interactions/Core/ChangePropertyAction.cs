@@ -10,8 +10,13 @@ namespace Avalonia.Xaml.Interactions.Core;
 /// An action that will change a specified property to a specified value when invoked.
 /// </summary>
 [RequiresUnreferencedCode("This functionality is not compatible with trimming.")]
-public class ChangePropertyAction : StyledElementAction
+public class ChangePropertyAction : StyledElementAction, IReversibleAction
 {
+    private bool _isApplied;
+    private object? _previousTargetObject;
+    private string? _previousPropertyName;
+    private object? _previousValue;
+
     /// <summary>
     /// Identifies the <seealso cref="PropertyName"/> avalonia property.
     /// </summary>
@@ -84,6 +89,53 @@ public class ChangePropertyAction : StyledElementAction
             return false;
         }
 
-        return PropertyHelper.UpdatePropertyValue(targetObject, propertyName, Value);
+        if (!_isApplied)
+        {
+            if (PropertyHelper.TryGetPropertyValue(targetObject, propertyName, out var previousValue))
+            {
+                _previousTargetObject = targetObject;
+                _previousPropertyName = propertyName;
+                _previousValue = previousValue;
+            }
+        }
+
+        var updated = PropertyHelper.UpdatePropertyValue(targetObject, propertyName, Value);
+        if (updated)
+        {
+            _isApplied = true;
+        }
+
+        return updated;
+    }
+
+    /// <summary>
+    /// Reverts the property value captured when this action was first applied.
+    /// </summary>
+    /// <param name="sender">The <see cref="object"/> that is passed to the action by the behavior.</param>
+    /// <param name="parameter">The value of this parameter is determined by the caller.</param>
+    /// <returns>True if reverting the property value succeeds; else false.</returns>
+    public object Revert(object? sender, object? parameter)
+    {
+        if (!_isApplied ||
+            _previousTargetObject is null ||
+            _previousPropertyName is null)
+        {
+            return false;
+        }
+
+        var reverted = PropertyHelper.UpdatePropertyValue(
+            _previousTargetObject,
+            _previousPropertyName,
+            _previousValue);
+
+        if (reverted)
+        {
+            _isApplied = false;
+            _previousTargetObject = null;
+            _previousPropertyName = null;
+            _previousValue = null;
+        }
+
+        return reverted;
     }
 }

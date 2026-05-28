@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Avalonia.Xaml.Interactions.UnitTests.Core.DataTriggerBehavior004"
+        Title="DataTriggerBehavior004">
+  <StackPanel>
+    <TextBlock Name="TargetTextBlock"
+               Text="Red">
+      <Interaction.Behaviors>
+        <DataTriggerBehavior Binding="{Binding #TargetCheckBox.IsChecked}"
+                             RevertOnFalse="True"
+                             ComparisonCondition="Equal"
+                             Value="True">
+          <ChangePropertyAction PropertyName="Text"
+                                Value="Blue" />
+        </DataTriggerBehavior>
+      </Interaction.Behaviors>
+    </TextBlock>
+    <CheckBox Name="TargetCheckBox"
+              Content="Check"
+              IsChecked="False" />
+  </StackPanel>
+</Window>

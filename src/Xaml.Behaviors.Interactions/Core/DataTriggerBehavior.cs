@@ -12,6 +12,9 @@ namespace Avalonia.Xaml.Interactions.Core;
 [RequiresUnreferencedCode("This functionality is not compatible with trimming.")]
 public class DataTriggerBehavior : StyledElementTrigger
 {
+    private bool _isConditionMet;
+    private bool _hasConditionState;
+
     /// <summary>
     /// Identifies the <seealso cref="Binding"/> avalonia property.
     /// </summary>
@@ -29,6 +32,12 @@ public class DataTriggerBehavior : StyledElementTrigger
     /// </summary>
     public static readonly StyledProperty<object?> ValueProperty =
         AvaloniaProperty.Register<DataTriggerBehavior, object?>(nameof(Value));
+
+    /// <summary>
+    /// Identifies the <seealso cref="RevertOnFalse"/> avalonia property.
+    /// </summary>
+    public static readonly StyledProperty<bool> RevertOnFalseProperty =
+        AvaloniaProperty.Register<DataTriggerBehavior, bool>(nameof(RevertOnFalse), defaultValue: false);
 
     /// <summary>
     /// Gets or sets the bound object that the <see cref="DataTriggerBehavior"/> will listen to. This is an avalonia property.
@@ -57,6 +66,16 @@ public class DataTriggerBehavior : StyledElementTrigger
         set => SetValue(ValueProperty, value);
     }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether reversible actions should be reverted when the condition becomes false.
+    /// When false, behavior matches legacy semantics and only executes actions when the condition is true.
+    /// </summary>
+    public bool RevertOnFalse
+    {
+        get => GetValue(RevertOnFalseProperty);
+        set => SetValue(RevertOnFalseProperty, value);
+    }
+
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
@@ -74,6 +93,12 @@ public class DataTriggerBehavior : StyledElementTrigger
 
         if (change.Property == ValueProperty)
         {
+            OnValueChanged(change);
+        }
+
+        if (change.Property == RevertOnFalseProperty)
+        {
+            _hasConditionState = false;
             OnValueChanged(change);
         }
     }
@@ -111,14 +136,64 @@ public class DataTriggerBehavior : StyledElementTrigger
             return;
         }
 
-        // NOTE: In UWP version binding null check is not present but Avalonia throws exception as Bindings are null when first initialized.
         var binding = Binding;
-        if (binding is not null)
+
+        if (!RevertOnFalse)
         {
-            // Some value has changed--either the binding value, reference value, or the comparison condition. Re-evaluate the equation.
-            if (ComparisonConditionTypeHelper.Compare(Binding, ComparisonCondition, Value))
+            // Preserve legacy behavior: execute whenever condition evaluates true.
+            if (binding is not null && ComparisonConditionTypeHelper.Compare(binding, ComparisonCondition, Value))
             {
                 Interaction.ExecuteActions(AssociatedObject, Actions, parameter);
+            }
+
+            return;
+        }
+
+        var isConditionMet = binding is not null &&
+                             !Equals(binding, AvaloniaProperty.UnsetValue) &&
+                             ComparisonConditionTypeHelper.Compare(binding, ComparisonCondition, Value);
+
+        if (!_hasConditionState)
+        {
+            _hasConditionState = true;
+            _isConditionMet = isConditionMet;
+
+            if (isConditionMet)
+            {
+                Interaction.ExecuteActions(AssociatedObject, Actions, parameter);
+            }
+
+            return;
+        }
+
+        if (_isConditionMet == isConditionMet)
+        {
+            return;
+        }
+
+        _isConditionMet = isConditionMet;
+
+        if (isConditionMet)
+        {
+            Interaction.ExecuteActions(AssociatedObject, Actions, parameter);
+            return;
+        }
+
+        RevertActions(parameter);
+    }
+
+    private void RevertActions(object? parameter)
+    {
+        if (AssociatedObject is null || Actions is null)
+        {
+            return;
+        }
+
+        foreach (var avaloniaObject in Actions)
+        {
+            if (avaloniaObject is IReversibleAction reversibleAction)
+            {
+                reversibleAction.Revert(AssociatedObject, parameter);
             }
         }
     }

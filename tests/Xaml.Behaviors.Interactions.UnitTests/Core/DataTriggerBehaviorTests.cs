@@ -70,4 +70,30 @@ public class DataTriggerBehaviorTests
         Assert.Equal("50 or more", window.TargetTextBlock.Text);
         Assert.Equal(50d, window.TargetSlider.Value);
     }
+
+    [AvaloniaFact]
+    public void DataTriggerBehavior_004_Reverts_On_False()
+    {
+        var window = new DataTriggerBehavior004();
+
+        window.Show();
+        window.CaptureRenderedFrame()?.Save("DataTriggerBehavior_004_0.png");
+
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+        Assert.False(window.TargetCheckBox.IsChecked);
+
+        window.Click(window.TargetCheckBox);
+
+        window.CaptureRenderedFrame()?.Save("DataTriggerBehavior_004_1.png");
+
+        Assert.Equal("Blue", window.TargetTextBlock.Text);
+        Assert.True(window.TargetCheckBox.IsChecked);
+
+        window.Click(window.TargetCheckBox);
+
+        window.CaptureRenderedFrame()?.Save("DataTriggerBehavior_004_2.png");
+
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+        Assert.False(window.TargetCheckBox.IsChecked);
+    }
 }

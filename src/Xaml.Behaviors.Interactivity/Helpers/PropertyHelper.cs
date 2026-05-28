@@ -149,6 +149,33 @@ internal static class PropertyHelper
         }
     }
 
+    private static object? GetClrPropertyValue(object targetObject, string propertyName)
+    {
+        var targetType = targetObject.GetType();
+        var targetTypeName = targetType.Name;
+        var propertyInfo = targetType.GetRuntimeProperty(propertyName);
+
+        if (propertyInfo is null)
+        {
+            throw new ArgumentException(string.Format(
+                CultureInfo.CurrentCulture,
+                "Cannot find a property named {0} on type {1}.",
+                propertyName,
+                targetTypeName));
+        }
+
+        if (!propertyInfo.CanRead)
+        {
+            throw new ArgumentException(string.Format(
+                CultureInfo.CurrentCulture,
+                "Property {0} on type {1} is write-only.",
+                propertyName,
+                targetTypeName));
+        }
+
+        return propertyInfo.GetValue(targetObject, []);
+    }
+
     private static void ValidateAvaloniaProperty(AvaloniaProperty? property, string propertyName)
     {
         if (property is null)
@@ -253,6 +280,35 @@ internal static class PropertyHelper
         }
 
         UpdateClrPropertyValue(targetObject, propertyName, value);
+        return true;
+    }
+
+    public static bool TryGetPropertyValue(object targetObject, string propertyName, out object? value)
+    {
+        if (targetObject is AvaloniaObject avaloniaObject)
+        {
+            if (propertyName.Contains('.'))
+            {
+                var avaloniaProperty = FindAvaloniaAttachedProperty(targetObject, propertyName);
+                if (avaloniaProperty is not null)
+                {
+                    value = avaloniaObject.GetValue(avaloniaProperty);
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            var registeredProperty = AvaloniaPropertyRegistry.Instance.FindRegistered(avaloniaObject, propertyName);
+            if (registeredProperty is not null)
+            {
+                value = avaloniaObject.GetValue(registeredProperty);
+                return true;
+            }
+        }
+
+        value = GetClrPropertyValue(targetObject, propertyName);
         return true;
     }
 }

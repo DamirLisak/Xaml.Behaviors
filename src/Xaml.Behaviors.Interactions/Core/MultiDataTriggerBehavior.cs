@@ -20,11 +20,19 @@ namespace Avalonia.Xaml.Interactions.Core;
 public class MultiDataTriggerBehavior : StyledElementTrigger
 {
     /// <summary>
+    /// Identifies the <seealso cref="RevertOnFalse"/> avalonia property.
+    /// </summary>
+    public static readonly StyledProperty<bool> RevertOnFalseProperty =
+        AvaloniaProperty.Register<MultiDataTriggerBehavior, bool>(nameof(RevertOnFalse), defaultValue: false);
+
+    /// <summary>
     /// Identifies the <seealso cref="Conditions"/> avalonia property.
     /// </summary>
     public static readonly StyledProperty<ConditionCollection?> ConditionsProperty =
         AvaloniaProperty.Register<MultiDataTriggerBehavior, ConditionCollection?>(nameof(Conditions));
 
+    private bool _isConditionMet;
+    private bool _hasConditionState;
     private readonly HashSet<Condition> _subscribedConditions = [];
     private readonly Dictionary<Condition, IDisposable?> _propertySubscriptions = [];
 
@@ -47,6 +55,16 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
         set => SetValue(ConditionsProperty, value);
     }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether reversible actions should be reverted when conditions become false.
+    /// When false, behavior matches legacy semantics and only executes actions when all conditions are true.
+    /// </summary>
+    public bool RevertOnFalse
+    {
+        get => GetValue(RevertOnFalseProperty);
+        set => SetValue(RevertOnFalseProperty, value);
+    }
+
     /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
@@ -64,6 +82,12 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
                 AttachConditions(newConditions);
             }
 
+            ScheduleExecute(change);
+        }
+
+        if (change.Property == RevertOnFalseProperty)
+        {
+            _hasConditionState = false;
             ScheduleExecute(change);
         }
     }
@@ -339,26 +363,85 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
             return;
         }
 
+        var isConditionMet = IsConditionMet();
+
+        if (!RevertOnFalse)
+        {
+            if (isConditionMet)
+            {
+                Interaction.ExecuteActions(AssociatedObject, Actions, parameter);
+            }
+
+            return;
+        }
+
+        if (!_hasConditionState)
+        {
+            _hasConditionState = true;
+            _isConditionMet = isConditionMet;
+
+            if (isConditionMet)
+            {
+                Interaction.ExecuteActions(AssociatedObject, Actions, parameter);
+            }
+
+            return;
+        }
+
+        if (_isConditionMet == isConditionMet)
+        {
+            return;
+        }
+
+        _isConditionMet = isConditionMet;
+
+        if (isConditionMet)
+        {
+            Interaction.ExecuteActions(AssociatedObject, Actions, parameter);
+            return;
+        }
+
+        RevertActions(parameter);
+    }
+
+    private bool IsConditionMet()
+    {
         var conditions = Conditions;
         if (conditions is null || conditions.Count == 0)
         {
-            return;
+            return false;
         }
 
         foreach (var condition in conditions)
         {
             if (!TryGetConditionValue(condition, out var value))
             {
-                return;
+                return false;
             }
 
             if (!ComparisonConditionTypeHelper.Compare(value, condition.ComparisonCondition, condition.Value))
             {
-                return;
+                return false;
             }
         }
 
-        Interaction.ExecuteActions(AssociatedObject, Actions, parameter);
+        return true;
+    }
+
+    private void RevertActions(object? parameter)
+    {
+        if (AssociatedObject is null || Actions is null)
+        {
+            return;
+        }
+
+        foreach (var avaloniaObject in Actions)
+        {
+            if (avaloniaObject is IReversibleAction reversibleAction)
+            {
+                reversibleAction.Revert(AssociatedObject, parameter);
+            }
+        }
     }
 
     private bool TryGetConditionValue(Condition condition, out object? value)

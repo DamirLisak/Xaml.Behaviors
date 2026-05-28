@@ -78,4 +78,35 @@ public class MultiDataTriggerBehaviorTests
         Assert.Equal("Checkbox unchecked", window.TargetTextBlock.Text);
         Assert.False(window.TargetCheckBox.IsChecked);
     }
+
+    [AvaloniaFact]
+    public void MultiDataTriggerBehavior_003_Reverts_On_False_When_Enabled()
+    {
+        var window = new MultiDataTriggerBehavior003();
+
+        window.Show();
+        window.CaptureRenderedFrame()?.Save("MultiDataTriggerBehavior_003_0.png");
+
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+        Assert.False(window.TargetCheckBox.IsChecked);
+        Assert.Equal(0d, window.TargetSlider.Value);
+
+        window.Click(window.TargetCheckBox);
+        window.TargetSlider.Focus();
+        window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+
+        window.CaptureRenderedFrame()?.Save("MultiDataTriggerBehavior_003_1.png");
+
+        Assert.Equal("Blue", window.TargetTextBlock.Text);
+        Assert.True(window.TargetCheckBox.IsChecked);
+        Assert.Equal(50d, window.TargetSlider.Value);
+
+        window.Click(window.TargetCheckBox);
+
+        window.CaptureRenderedFrame()?.Save("MultiDataTriggerBehavior_003_2.png");
+
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+        Assert.False(window.TargetCheckBox.IsChecked);
+    }
 }
