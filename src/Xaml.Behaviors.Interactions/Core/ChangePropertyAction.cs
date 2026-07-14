@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for details.
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using Avalonia.Xaml.Interactivity;
 
@@ -11,7 +12,7 @@ namespace Avalonia.Xaml.Interactions.Core;
 /// An action that will change a specified property to a specified value when invoked.
 /// </summary>
 [RequiresUnreferencedCode("This functionality is not compatible with trimming.")]
-public class ChangePropertyAction : StyledElementAction, IReversibleAction
+public class ChangePropertyAction : StyledElementAction, IReversibleAction, IReversibleActionExecution
 {
     private sealed class PropertyFrame(object? value)
     {
@@ -25,9 +26,7 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
         public List<PropertyFrame> Frames { get; } = [];
     }
 
-    private static readonly AttachedProperty<Dictionary<string, PropertyStack>?> PropertyStacksProperty =
-        AvaloniaProperty.RegisterAttached<ChangePropertyAction, AvaloniaObject, Dictionary<string, PropertyStack>?>(
-            "ReversiblePropertyStacks");
+    private static readonly ConditionalWeakTable<object, Dictionary<string, PropertyStack>> s_propertyStacks = new();
 
     private bool _isApplied;
     private object? _previousTargetObject;
@@ -92,6 +91,21 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
     /// <returns>True if updating the property value succeeds; else false.</returns>
     public override object Execute(object? sender, object? parameter)
     {
+        return ExecuteCore(sender, preserveValueSource: false);
+    }
+
+    object? IReversibleActionExecution.ExecuteReversibly(object? sender, object? parameter)
+    {
+        return ExecuteReversibly(sender);
+    }
+
+    private object ExecuteReversibly(object? sender)
+    {
+        return ExecuteCore(sender, preserveValueSource: true);
+    }
+
+    private object ExecuteCore(object? sender, bool preserveValueSource)
+    {
         if (!IsEnabled)
         {
             return false;
@@ -109,7 +123,8 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
             return false;
         }
 
-        if (_isApplied &&
+        if (preserveValueSource &&
+            _isApplied &&
             _propertyStack is not null &&
             _propertyFrame is not null)
         {
@@ -126,11 +141,20 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
             return updatedFrame;
         }
 
-        if (!_isApplied &&
-            targetObject is AvaloniaObject avaloniaObject &&
-            TryApplyStackedValue(avaloniaObject, propertyName, Value))
+        if (preserveValueSource &&
+            !_isApplied &&
+            TryApplyStackedValue(targetObject, propertyName, Value))
         {
             return true;
+        }
+
+        if (!preserveValueSource)
+        {
+            return PropertyHelper.UpdatePropertyValue(
+                targetObject,
+                propertyName,
+                Value,
+                preserveValueSource: false);
         }
 
         if (!_isApplied)
@@ -141,12 +165,12 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
                     targetObject,
                     propertyName,
                     out var previousValue,
-                    out var preserveValueSource))
+                    out var capturedPreserveValueSource))
             {
                 _previousTargetObject = targetObject;
                 _previousPropertyName = propertyName;
                 _previousValue = previousValue;
-                _preserveValueSource = preserveValueSource;
+                _preserveValueSource = capturedPreserveValueSource;
             }
         }
 
@@ -179,11 +203,10 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
             return false;
         }
 
-        if (_previousTargetObject is AvaloniaObject avaloniaObject &&
-            _propertyStack is not null &&
+        if (_propertyStack is not null &&
             _propertyFrame is not null)
         {
-            return RevertStackedValue(avaloniaObject);
+            return RevertStackedValue(_previousTargetObject);
         }
 
         var reverted = PropertyHelper.UpdatePropertyValue(
@@ -200,11 +223,9 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
         return reverted;
     }
 
-    private bool TryApplyStackedValue(AvaloniaObject targetObject, string propertyName, object? value)
+    private bool TryApplyStackedValue(object targetObject, string propertyName, object? value)
     {
-        var propertyStacks = targetObject.GetValue(PropertyStacksProperty);
-        var isNewCollection = propertyStacks is null;
-        propertyStacks ??= new Dictionary<string, PropertyStack>();
+        var propertyStacks = s_propertyStacks.GetOrCreateValue(targetObject);
 
         var isNewStack = !propertyStacks.TryGetValue(propertyName, out var propertyStack);
         if (isNewStack)
@@ -213,12 +234,17 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
                     targetObject,
                     propertyName,
                     out var originalValue,
-                    out var preserveValueSource))
+                    out var capturedPreserveValueSource))
             {
+                if (propertyStacks.Count == 0)
+                {
+                    s_propertyStacks.Remove(targetObject);
+                }
+
                 return false;
             }
 
-            propertyStack = new PropertyStack(originalValue, preserveValueSource);
+            propertyStack = new PropertyStack(originalValue, capturedPreserveValueSource);
         }
 
         var updated = PropertyHelper.UpdatePropertyValue(
@@ -238,11 +264,6 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
             propertyStacks.Add(propertyName, propertyStack);
         }
 
-        if (isNewCollection)
-        {
-            targetObject.SetValue(PropertyStacksProperty, propertyStacks);
-        }
-
         _previousTargetObject = targetObject;
         _previousPropertyName = propertyName;
         _previousValue = propertyStack.OriginalValue;
@@ -253,7 +274,7 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
         return true;
     }
 
-    private bool RevertStackedValue(AvaloniaObject targetObject)
+    private bool RevertStackedValue(object targetObject)
     {
         var propertyName = _previousPropertyName!;
         var propertyStack = _propertyStack!;
@@ -285,11 +306,13 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
         propertyStack.Frames.RemoveAt(frameIndex);
         if (propertyStack.Frames.Count == 0)
         {
-            var propertyStacks = targetObject.GetValue(PropertyStacksProperty);
-            propertyStacks?.Remove(propertyName);
-            if (propertyStacks is { Count: 0 })
+            if (s_propertyStacks.TryGetValue(targetObject, out var propertyStacks))
             {
-                targetObject.ClearValue(PropertyStacksProperty);
+                propertyStacks.Remove(propertyName);
+                if (propertyStacks.Count == 0)
+                {
+                    s_propertyStacks.Remove(targetObject);
+                }
             }
         }
 

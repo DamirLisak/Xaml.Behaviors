@@ -160,7 +160,7 @@ public class DataTriggerBehavior : StyledElementTrigger
 
             if (isConditionMet)
             {
-                Interaction.ExecuteActions(AssociatedObject, Actions, parameter);
+                ReversibleActionExecution.Execute(AssociatedObject, Actions, parameter);
             }
 
             return;
@@ -175,7 +175,7 @@ public class DataTriggerBehavior : StyledElementTrigger
 
         if (isConditionMet)
         {
-            Interaction.ExecuteActions(AssociatedObject, Actions, parameter);
+            ReversibleActionExecution.Execute(AssociatedObject, Actions, parameter);
             return;
         }
 

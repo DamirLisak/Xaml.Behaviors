@@ -70,7 +70,7 @@ public class ChangePropertyActionTests
         };
 
         Assert.Equal("First", target.Text);
-        Assert.True((bool)action.Execute(target, null));
+        Assert.True((bool)((IReversibleActionExecution)action).ExecuteReversibly(target, null)!);
         Assert.Equal("Applied", target.Text);
         Assert.True((bool)action.Revert(target, null));
         Assert.Equal("First", target.Text);
@@ -79,6 +79,33 @@ public class ChangePropertyActionTests
         target.Classes.Add("second");
 
         Assert.Equal("Second", target.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
+    public void Execute_Preserves_Legacy_Local_Value_Semantics()
+    {
+        var target = new TextBlock();
+        target.Classes.Add("first");
+
+        var window = new Window { Content = target };
+        window.Styles.Add(CreateTextStyle("first", "First"));
+        window.Styles.Add(CreateTextStyle("second", "Second"));
+        window.Show();
+
+        var action = new ChangePropertyAction
+        {
+            PropertyName = nameof(TextBlock.Text),
+            Value = "Applied"
+        };
+
+        Assert.True((bool)action.Execute(target, null));
+        target.Classes.Remove("first");
+        target.Classes.Add("second");
+
+        Assert.Equal("Applied", target.Text);
+        Assert.False((bool)action.Revert(target, null));
         window.Close();
     }
 
@@ -115,8 +142,8 @@ public class ChangePropertyActionTests
             Value = "Second"
         };
 
-        Assert.True((bool)first.Execute(target, null));
-        Assert.True((bool)second.Execute(target, null));
+        Assert.True((bool)((IReversibleActionExecution)first).ExecuteReversibly(target, null)!);
+        Assert.True((bool)((IReversibleActionExecution)second).ExecuteReversibly(target, null)!);
         Assert.Equal("Second", target.Text);
 
         Assert.True((bool)first.Revert(target, null));
@@ -124,12 +151,38 @@ public class ChangePropertyActionTests
         Assert.True((bool)second.Revert(target, null));
         Assert.Equal("Original", target.Text);
 
-        Assert.True((bool)first.Execute(target, null));
-        Assert.True((bool)second.Execute(target, null));
+        Assert.True((bool)((IReversibleActionExecution)first).ExecuteReversibly(target, null)!);
+        Assert.True((bool)((IReversibleActionExecution)second).ExecuteReversibly(target, null)!);
         Assert.True((bool)second.Revert(target, null));
         Assert.Equal("First", target.Text);
         Assert.True((bool)first.Revert(target, null));
         Assert.Equal("Original", target.Text);
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
+    public void Revert_Preserves_Remaining_Active_Clr_Property_Action()
+    {
+        var target = new ReadWriteTarget { Value = "Original" };
+        var first = new ChangePropertyAction
+        {
+            TargetObject = target,
+            PropertyName = nameof(ReadWriteTarget.Value),
+            Value = "First"
+        };
+        var second = new ChangePropertyAction
+        {
+            TargetObject = target,
+            PropertyName = nameof(ReadWriteTarget.Value),
+            Value = "Second"
+        };
+
+        Assert.True((bool)((IReversibleActionExecution)first).ExecuteReversibly(null, null)!);
+        Assert.True((bool)((IReversibleActionExecution)second).ExecuteReversibly(null, null)!);
+        Assert.True((bool)first.Revert(null, null));
+        Assert.Equal("Second", target.Value);
+        Assert.True((bool)second.Revert(null, null));
+        Assert.Equal("Original", target.Value);
     }
 
     private static Style CreateTextStyle(string className, string value)
@@ -151,5 +204,10 @@ public class ChangePropertyActionTests
         }
 
         public string? WrittenValue { get; private set; }
+    }
+
+    private sealed class ReadWriteTarget
+    {
+        public string? Value { get; set; }
     }
 }
