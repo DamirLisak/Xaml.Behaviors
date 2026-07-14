@@ -149,7 +149,7 @@ internal static class PropertyHelper
         }
     }
 
-    private static object? GetClrPropertyValue(object targetObject, string propertyName)
+    private static bool TryGetClrPropertyValue(object targetObject, string propertyName, out object? value)
     {
         var targetType = targetObject.GetType();
         var targetTypeName = targetType.Name;
@@ -166,14 +166,12 @@ internal static class PropertyHelper
 
         if (!propertyInfo.CanRead)
         {
-            throw new ArgumentException(string.Format(
-                CultureInfo.CurrentCulture,
-                "Property {0} on type {1} is write-only.",
-                propertyName,
-                targetTypeName));
+            value = null;
+            return false;
         }
 
-        return propertyInfo.GetValue(targetObject, []);
+        value = propertyInfo.GetValue(targetObject, []);
+        return true;
     }
 
     private static void ValidateAvaloniaProperty(AvaloniaProperty? property, string propertyName)
@@ -194,7 +192,12 @@ internal static class PropertyHelper
         }
     }
 
-    private static void UpdateAvaloniaPropertyValue(AvaloniaObject avaloniaObject, AvaloniaProperty property, string propertyName, object? value)
+    private static void UpdateAvaloniaPropertyValue(
+        AvaloniaObject avaloniaObject,
+        AvaloniaProperty property,
+        string propertyName,
+        object? value,
+        bool preserveValueSource)
     {
         ValidateAvaloniaProperty(property, propertyName);
 
@@ -230,7 +233,14 @@ internal static class PropertyHelper
                 }
             }
 
-            avaloniaObject.SetValue(property, result);
+            if (preserveValueSource)
+            {
+                avaloniaObject.SetCurrentValue(property, result);
+            }
+            else
+            {
+                avaloniaObject.SetValue(property, result);
+            }
         }
         catch (FormatException e)
         {
@@ -253,7 +263,11 @@ internal static class PropertyHelper
         }
     }
 
-    public static bool UpdatePropertyValue(object targetObject, string propertyName, object? value)
+    public static bool UpdatePropertyValue(
+        object targetObject,
+        string propertyName,
+        object? value,
+        bool preserveValueSource = false)
     {
         if (targetObject is AvaloniaObject avaloniaObject)
         {
@@ -262,7 +276,12 @@ internal static class PropertyHelper
                 var avaloniaProperty = FindAvaloniaAttachedProperty(targetObject, propertyName);
                 if (avaloniaProperty is not null)
                 {
-                    UpdateAvaloniaPropertyValue(avaloniaObject, avaloniaProperty, propertyName, value);
+                    UpdateAvaloniaPropertyValue(
+                        avaloniaObject,
+                        avaloniaProperty,
+                        propertyName,
+                        value,
+                        preserveValueSource);
                     return true;
                 }
 
@@ -273,7 +292,12 @@ internal static class PropertyHelper
                 var avaloniaProperty = AvaloniaPropertyRegistry.Instance.FindRegistered(avaloniaObject, propertyName);
                 if (avaloniaProperty is not null)
                 {
-                    UpdateAvaloniaPropertyValue(avaloniaObject, avaloniaProperty, propertyName, value);
+                    UpdateAvaloniaPropertyValue(
+                        avaloniaObject,
+                        avaloniaProperty,
+                        propertyName,
+                        value,
+                        preserveValueSource);
                     return true;
                 }
             }
@@ -283,8 +307,14 @@ internal static class PropertyHelper
         return true;
     }
 
-    public static bool TryGetPropertyValue(object targetObject, string propertyName, out object? value)
+    public static bool TryGetPropertyValue(
+        object targetObject,
+        string propertyName,
+        out object? value,
+        out bool preserveValueSource)
     {
+        preserveValueSource = false;
+
         if (targetObject is AvaloniaObject avaloniaObject)
         {
             if (propertyName.Contains('.'))
@@ -293,6 +323,7 @@ internal static class PropertyHelper
                 if (avaloniaProperty is not null)
                 {
                     value = avaloniaObject.GetValue(avaloniaProperty);
+                    preserveValueSource = true;
                     return true;
                 }
 
@@ -304,11 +335,11 @@ internal static class PropertyHelper
             if (registeredProperty is not null)
             {
                 value = avaloniaObject.GetValue(registeredProperty);
+                preserveValueSource = true;
                 return true;
             }
         }
 
-        value = GetClrPropertyValue(targetObject, propertyName);
-        return true;
+        return TryGetClrPropertyValue(targetObject, propertyName, out value);
     }
 }

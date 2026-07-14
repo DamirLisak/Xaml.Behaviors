@@ -1,6 +1,10 @@
-﻿using Avalonia.Headless;
+﻿using System.Diagnostics.CodeAnalysis;
+using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Styling;
+using Avalonia.Xaml.Interactions.Core;
 using Xunit;
 
 namespace Avalonia.Xaml.Interactions.UnitTests.Core;
@@ -45,5 +49,74 @@ public class ChangePropertyActionTests
         window.CaptureRenderedFrame()?.Save("ChangePropertyAction_002_1.png");
 
         Assert.Equal(12d, window.TargetTextBox.FontSize);
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
+    public void Revert_Preserves_Styled_Property_Source()
+    {
+        var target = new TextBlock();
+        target.Classes.Add("first");
+
+        var window = new Window { Content = target };
+        window.Styles.Add(CreateTextStyle("first", "First"));
+        window.Styles.Add(CreateTextStyle("second", "Second"));
+        window.Show();
+
+        var action = new ChangePropertyAction
+        {
+            PropertyName = nameof(TextBlock.Text),
+            Value = "Applied"
+        };
+
+        Assert.Equal("First", target.Text);
+        Assert.True((bool)action.Execute(target, null));
+        Assert.Equal("Applied", target.Text);
+        Assert.True((bool)action.Revert(target, null));
+        Assert.Equal("First", target.Text);
+
+        target.Classes.Remove("first");
+        target.Classes.Add("second");
+
+        Assert.Equal("Second", target.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
+    public void Execute_Updates_WriteOnly_Clr_Property()
+    {
+        var target = new WriteOnlyTarget();
+        var action = new ChangePropertyAction
+        {
+            TargetObject = target,
+            PropertyName = nameof(WriteOnlyTarget.Value),
+            Value = "Updated"
+        };
+
+        Assert.True((bool)action.Execute(null, null));
+        Assert.Equal("Updated", target.WrittenValue);
+        Assert.False((bool)action.Revert(null, null));
+    }
+
+    private static Style CreateTextStyle(string className, string value)
+    {
+        return new Style(x => x.OfType<TextBlock>().Class(className))
+        {
+            Setters =
+            {
+                new Setter(TextBlock.TextProperty, value)
+            }
+        };
+    }
+
+    private sealed class WriteOnlyTarget
+    {
+        public string? Value
+        {
+            set => WrittenValue = value;
+        }
+
+        public string? WrittenValue { get; private set; }
     }
 }

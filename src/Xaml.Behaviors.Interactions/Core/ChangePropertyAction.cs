@@ -16,6 +16,7 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
     private object? _previousTargetObject;
     private string? _previousPropertyName;
     private object? _previousValue;
+    private bool _preserveValueSource;
 
     /// <summary>
     /// Identifies the <seealso cref="PropertyName"/> avalonia property.
@@ -91,18 +92,30 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
 
         if (!_isApplied)
         {
-            if (PropertyHelper.TryGetPropertyValue(targetObject, propertyName, out var previousValue))
+            ClearSnapshot();
+
+            if (PropertyHelper.TryGetPropertyValue(
+                    targetObject,
+                    propertyName,
+                    out var previousValue,
+                    out var preserveValueSource))
             {
                 _previousTargetObject = targetObject;
                 _previousPropertyName = propertyName;
                 _previousValue = previousValue;
+                _preserveValueSource = preserveValueSource;
             }
         }
 
-        var updated = PropertyHelper.UpdatePropertyValue(targetObject, propertyName, Value);
+        var updated = PropertyHelper.UpdatePropertyValue(
+            targetObject,
+            propertyName,
+            Value,
+            _preserveValueSource);
         if (updated)
         {
-            _isApplied = true;
+            _isApplied = _previousTargetObject is not null &&
+                         _previousPropertyName is not null;
         }
 
         return updated;
@@ -126,16 +139,23 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
         var reverted = PropertyHelper.UpdatePropertyValue(
             _previousTargetObject,
             _previousPropertyName,
-            _previousValue);
+            _previousValue,
+            _preserveValueSource);
 
         if (reverted)
         {
-            _isApplied = false;
-            _previousTargetObject = null;
-            _previousPropertyName = null;
-            _previousValue = null;
+            ClearSnapshot();
         }
 
         return reverted;
+    }
+
+    private void ClearSnapshot()
+    {
+        _isApplied = false;
+        _previousTargetObject = null;
+        _previousPropertyName = null;
+        _previousValue = null;
+        _preserveValueSource = false;
     }
 }
