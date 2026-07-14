@@ -17,6 +17,8 @@
           </MultiDataTriggerBehavior.Conditions>
           <ChangePropertyAction PropertyName="Text"
                                 Value="Blue" />
+          <ChangePropertyAction PropertyName="Text"
+                                Value="Green" />
         </MultiDataTriggerBehavior>
       </Interaction.Behaviors>
     </TextBlock>

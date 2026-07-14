@@ -86,7 +86,7 @@ public class DataTriggerBehaviorTests
 
         window.CaptureRenderedFrame()?.Save("DataTriggerBehavior_004_1.png");
 
-        Assert.Equal("Blue", window.TargetTextBlock.Text);
+        Assert.Equal("Green", window.TargetTextBlock.Text);
         Assert.True(window.TargetCheckBox.IsChecked);
 
         window.Click(window.TargetCheckBox);

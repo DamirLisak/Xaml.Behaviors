@@ -98,7 +98,7 @@ public class MultiDataTriggerBehaviorTests
 
         window.CaptureRenderedFrame()?.Save("MultiDataTriggerBehavior_003_1.png");
 
-        Assert.Equal("Blue", window.TargetTextBlock.Text);
+        Assert.Equal("Green", window.TargetTextBlock.Text);
         Assert.True(window.TargetCheckBox.IsChecked);
         Assert.Equal(50d, window.TargetSlider.Value);
 

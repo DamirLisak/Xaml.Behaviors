@@ -12,6 +12,8 @@
                              Value="True">
           <ChangePropertyAction PropertyName="Text"
                                 Value="Blue" />
+          <ChangePropertyAction PropertyName="Text"
+                                Value="Green" />
         </DataTriggerBehavior>
       </Interaction.Behaviors>
     </TextBlock>

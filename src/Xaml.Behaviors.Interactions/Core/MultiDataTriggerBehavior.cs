@@ -435,9 +435,9 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
             return;
         }
 
-        foreach (var avaloniaObject in Actions)
+        for (var index = Actions.Count - 1; index >= 0; index--)
         {
-            if (avaloniaObject is IReversibleAction reversibleAction)
+            if (Actions[index] is IReversibleAction reversibleAction)
             {
                 reversibleAction.Revert(AssociatedObject, parameter);
             }
