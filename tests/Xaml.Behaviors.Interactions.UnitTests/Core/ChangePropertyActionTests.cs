@@ -99,6 +99,39 @@ public class ChangePropertyActionTests
         Assert.False((bool)action.Revert(null, null));
     }
 
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
+    public void Revert_Preserves_Remaining_Active_Property_Action()
+    {
+        var target = new TextBlock { Text = "Original" };
+        var first = new ChangePropertyAction
+        {
+            PropertyName = nameof(TextBlock.Text),
+            Value = "First"
+        };
+        var second = new ChangePropertyAction
+        {
+            PropertyName = nameof(TextBlock.Text),
+            Value = "Second"
+        };
+
+        Assert.True((bool)first.Execute(target, null));
+        Assert.True((bool)second.Execute(target, null));
+        Assert.Equal("Second", target.Text);
+
+        Assert.True((bool)first.Revert(target, null));
+        Assert.Equal("Second", target.Text);
+        Assert.True((bool)second.Revert(target, null));
+        Assert.Equal("Original", target.Text);
+
+        Assert.True((bool)first.Execute(target, null));
+        Assert.True((bool)second.Execute(target, null));
+        Assert.True((bool)second.Revert(target, null));
+        Assert.Equal("First", target.Text);
+        Assert.True((bool)first.Revert(target, null));
+        Assert.Equal("Original", target.Text);
+    }
+
     private static Style CreateTextStyle(string className, string value)
     {
         return new Style(x => x.OfType<TextBlock>().Class(className))

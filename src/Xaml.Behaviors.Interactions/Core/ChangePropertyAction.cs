@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using Avalonia.Controls;
 using Avalonia.Xaml.Interactivity;
@@ -12,11 +13,29 @@ namespace Avalonia.Xaml.Interactions.Core;
 [RequiresUnreferencedCode("This functionality is not compatible with trimming.")]
 public class ChangePropertyAction : StyledElementAction, IReversibleAction
 {
+    private sealed class PropertyFrame(object? value)
+    {
+        public object? Value { get; set; } = value;
+    }
+
+    private sealed class PropertyStack(object? originalValue, bool preserveValueSource)
+    {
+        public object? OriginalValue { get; } = originalValue;
+        public bool PreserveValueSource { get; } = preserveValueSource;
+        public List<PropertyFrame> Frames { get; } = [];
+    }
+
+    private static readonly AttachedProperty<Dictionary<string, PropertyStack>?> PropertyStacksProperty =
+        AvaloniaProperty.RegisterAttached<ChangePropertyAction, AvaloniaObject, Dictionary<string, PropertyStack>?>(
+            "ReversiblePropertyStacks");
+
     private bool _isApplied;
     private object? _previousTargetObject;
     private string? _previousPropertyName;
     private object? _previousValue;
     private bool _preserveValueSource;
+    private PropertyStack? _propertyStack;
+    private PropertyFrame? _propertyFrame;
 
     /// <summary>
     /// Identifies the <seealso cref="PropertyName"/> avalonia property.
@@ -90,6 +109,30 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
             return false;
         }
 
+        if (_isApplied &&
+            _propertyStack is not null &&
+            _propertyFrame is not null)
+        {
+            var updatedFrame = PropertyHelper.UpdatePropertyValue(
+                targetObject,
+                propertyName,
+                Value,
+                _propertyStack.PreserveValueSource);
+            if (updatedFrame)
+            {
+                _propertyFrame.Value = Value;
+            }
+
+            return updatedFrame;
+        }
+
+        if (!_isApplied &&
+            targetObject is AvaloniaObject avaloniaObject &&
+            TryApplyStackedValue(avaloniaObject, propertyName, Value))
+        {
+            return true;
+        }
+
         if (!_isApplied)
         {
             ClearSnapshot();
@@ -136,6 +179,13 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
             return false;
         }
 
+        if (_previousTargetObject is AvaloniaObject avaloniaObject &&
+            _propertyStack is not null &&
+            _propertyFrame is not null)
+        {
+            return RevertStackedValue(avaloniaObject);
+        }
+
         var reverted = PropertyHelper.UpdatePropertyValue(
             _previousTargetObject,
             _previousPropertyName,
@@ -150,6 +200,103 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
         return reverted;
     }
 
+    private bool TryApplyStackedValue(AvaloniaObject targetObject, string propertyName, object? value)
+    {
+        var propertyStacks = targetObject.GetValue(PropertyStacksProperty);
+        var isNewCollection = propertyStacks is null;
+        propertyStacks ??= new Dictionary<string, PropertyStack>();
+
+        var isNewStack = !propertyStacks.TryGetValue(propertyName, out var propertyStack);
+        if (isNewStack)
+        {
+            if (!PropertyHelper.TryGetPropertyValue(
+                    targetObject,
+                    propertyName,
+                    out var originalValue,
+                    out var preserveValueSource))
+            {
+                return false;
+            }
+
+            propertyStack = new PropertyStack(originalValue, preserveValueSource);
+        }
+
+        var updated = PropertyHelper.UpdatePropertyValue(
+            targetObject,
+            propertyName,
+            value,
+            propertyStack!.PreserveValueSource);
+        if (!updated)
+        {
+            return false;
+        }
+
+        var propertyFrame = new PropertyFrame(value);
+        propertyStack.Frames.Add(propertyFrame);
+        if (isNewStack)
+        {
+            propertyStacks.Add(propertyName, propertyStack);
+        }
+
+        if (isNewCollection)
+        {
+            targetObject.SetValue(PropertyStacksProperty, propertyStacks);
+        }
+
+        _previousTargetObject = targetObject;
+        _previousPropertyName = propertyName;
+        _previousValue = propertyStack.OriginalValue;
+        _preserveValueSource = propertyStack.PreserveValueSource;
+        _propertyStack = propertyStack;
+        _propertyFrame = propertyFrame;
+        _isApplied = true;
+        return true;
+    }
+
+    private bool RevertStackedValue(AvaloniaObject targetObject)
+    {
+        var propertyName = _previousPropertyName!;
+        var propertyStack = _propertyStack!;
+        var propertyFrame = _propertyFrame!;
+        var frameIndex = propertyStack.Frames.IndexOf(propertyFrame);
+        if (frameIndex < 0)
+        {
+            ClearSnapshot();
+            return false;
+        }
+
+        var wasTopFrame = frameIndex == propertyStack.Frames.Count - 1;
+        if (wasTopFrame)
+        {
+            var restoredValue = frameIndex > 0
+                ? propertyStack.Frames[frameIndex - 1].Value
+                : propertyStack.OriginalValue;
+            var reverted = PropertyHelper.UpdatePropertyValue(
+                targetObject,
+                propertyName,
+                restoredValue,
+                propertyStack.PreserveValueSource);
+            if (!reverted)
+            {
+                return false;
+            }
+        }
+
+        propertyStack.Frames.RemoveAt(frameIndex);
+        if (propertyStack.Frames.Count == 0)
+        {
+            var propertyStacks = targetObject.GetValue(PropertyStacksProperty);
+            propertyStacks?.Remove(propertyName);
+            if (propertyStacks is { Count: 0 })
+            {
+                targetObject.ClearValue(PropertyStacksProperty);
+            }
+        }
+
+        ClearSnapshot();
+        return true;
+    }
+
     private void ClearSnapshot()
     {
         _isApplied = false;
@@ -157,5 +304,7 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
         _previousPropertyName = null;
         _previousValue = null;
         _preserveValueSource = false;
+        _propertyStack = null;
+        _propertyFrame = null;
     }
 }
