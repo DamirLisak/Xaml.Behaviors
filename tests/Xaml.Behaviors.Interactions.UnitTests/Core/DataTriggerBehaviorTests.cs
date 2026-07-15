@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -120,6 +121,31 @@ public class DataTriggerBehaviorTests
         Assert.Equal("Green", window.TargetTextBlock.Text);
         window.Click(window.TargetCheckBox);
         Assert.Equal("External", window.TargetTextBlock.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property actions.")]
+    public void DataTriggerBehavior_004_Reverts_And_Clears_State_When_Removed()
+    {
+        var window = new DataTriggerBehavior004();
+        window.Show();
+        var behaviors = Interaction.GetBehaviors(window.TargetTextBlock);
+        var behavior = Assert.IsType<DataTriggerBehavior>(Assert.Single(behaviors));
+        window.Click(window.TargetCheckBox);
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+
+        behaviors.Remove(behavior);
+
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+        var laterAction = new ChangePropertyAction
+        {
+            PropertyName = nameof(Avalonia.Controls.TextBlock.Text),
+            Value = "Blue",
+        };
+        Assert.True((bool)((IReversibleAction)laterAction).ExecuteReversibly(window.TargetTextBlock, null)!);
+        Assert.True((bool)laterAction.Revert(window.TargetTextBlock, null));
+        Assert.Equal("Red", window.TargetTextBlock.Text);
         window.Close();
     }
 }

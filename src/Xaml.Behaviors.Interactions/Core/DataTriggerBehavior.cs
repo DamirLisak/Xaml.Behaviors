@@ -116,6 +116,18 @@ public class DataTriggerBehavior : StyledElementTrigger
         Execute(parameter: null);
     }
 
+    /// <inheritdoc />
+    protected override void OnDetaching()
+    {
+        if (RevertOnFalse)
+        {
+            RevertActions(parameter: null);
+        }
+
+        _hasConditionState = false;
+        base.OnDetaching();
+    }
+
     private void OnValueChanged(AvaloniaPropertyChangedEventArgs args)
     {
         if (args.Sender is not DataTriggerBehavior behavior)

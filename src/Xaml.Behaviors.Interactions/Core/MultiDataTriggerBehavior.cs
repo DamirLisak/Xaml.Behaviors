@@ -107,6 +107,18 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
     }
 
     /// <inheritdoc />
+    protected override void OnDetaching()
+    {
+        if (RevertOnFalse)
+        {
+            RevertActions(parameter: null);
+        }
+
+        _hasConditionState = false;
+        base.OnDetaching();
+    }
+
+    /// <inheritdoc />
     protected override void OnAttachedToLogicalTree()
     {
         base.OnAttachedToLogicalTree();
