@@ -1,12 +1,35 @@
+using System.Diagnostics.CodeAnalysis;
+using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Threading;
+using Avalonia.Xaml.Interactions.Core;
+using Avalonia.Xaml.Interactivity;
 using Xunit;
 
 namespace Avalonia.Xaml.Interactions.UnitTests.Core;
 
 public class MultiDataTriggerBehaviorTests
 {
+    private sealed class ExecutionPathAction : StyledElementAction, IReversibleActionExecution
+    {
+        public int LegacyExecutionCount { get; private set; }
+        public int ReversibleExecutionCount { get; private set; }
+
+        public override object Execute(object? sender, object? parameter)
+        {
+            LegacyExecutionCount++;
+            return true;
+        }
+
+        object? IReversibleActionExecution.ExecuteReversibly(object? sender, object? parameter)
+        {
+            ReversibleExecutionCount++;
+            return true;
+        }
+    }
+
     [AvaloniaFact]
     public void MultiDataTriggerBehavior_001()
     {
@@ -108,5 +131,46 @@ public class MultiDataTriggerBehaviorTests
 
         Assert.Equal("Red", window.TargetTextBlock.Text);
         Assert.False(window.TargetCheckBox.IsChecked);
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based trigger comparison.")]
+    public void MultiDataTriggerBehavior_UsesExecutionPathSelectedByRevertOnFalse()
+    {
+        var legacyAction = new ExecutionPathAction();
+        var reversibleAction = new ExecutionPathAction();
+        var button = new Button { IsEnabled = true };
+        Interaction.SetBehaviors(button, new BehaviorCollection
+        {
+            CreateBehavior(revertOnFalse: false, legacyAction),
+            CreateBehavior(revertOnFalse: true, reversibleAction),
+        });
+        var window = new Window { Content = button };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(legacyAction.LegacyExecutionCount > 0);
+        Assert.Equal(0, legacyAction.ReversibleExecutionCount);
+        Assert.Equal(0, reversibleAction.LegacyExecutionCount);
+        Assert.True(reversibleAction.ReversibleExecutionCount > 0);
+        window.Close();
+    }
+
+    private static MultiDataTriggerBehavior CreateBehavior(bool revertOnFalse, ExecutionPathAction action)
+    {
+        return new MultiDataTriggerBehavior
+        {
+            RevertOnFalse = revertOnFalse,
+            Conditions = new ConditionCollection
+            {
+                new Condition
+                {
+                    Property = Button.IsEnabledProperty,
+                    Value = true,
+                },
+            },
+            Actions = new ActionCollection { action },
+        };
     }
 }
