@@ -15,20 +15,39 @@ internal static class ReversibleActionExecution
             return appliedActions;
         }
 
-        foreach (var item in actions)
+        try
         {
-            if (item is IReversibleAction reversibleAction)
+            foreach (var item in actions)
             {
-                var result = reversibleAction.ExecuteReversibly(sender, parameter);
-                if (result is not false)
+                if (item is IReversibleAction reversibleAction)
                 {
-                    appliedActions.Add(reversibleAction);
+                    var result = reversibleAction.ExecuteReversibly(sender, parameter);
+                    if (result is not false)
+                    {
+                        appliedActions.Add(reversibleAction);
+                    }
+                }
+                else if (item is IAction action)
+                {
+                    action.Execute(sender, parameter);
                 }
             }
-            else if (item is IAction action)
+        }
+        catch
+        {
+            for (var index = appliedActions.Count - 1; index >= 0; index--)
             {
-                action.Execute(sender, parameter);
+                try
+                {
+                    appliedActions[index].Revert(sender, parameter);
+                }
+                catch
+                {
+                    // Preserve the exception raised while applying the action sequence.
+                }
             }
+
+            throw;
         }
 
         return appliedActions;

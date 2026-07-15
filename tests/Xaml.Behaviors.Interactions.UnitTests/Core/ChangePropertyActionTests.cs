@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System;
+using System.Diagnostics.CodeAnalysis;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -13,6 +14,24 @@ namespace Avalonia.Xaml.Interactions.UnitTests.Core;
 
 public class ChangePropertyActionTests
 {
+    private sealed class ThrowingReversibleAction : StyledElementAction, IReversibleAction
+    {
+        public override object Execute(object? sender, object? parameter)
+        {
+            throw new InvalidOperationException("Apply failed.");
+        }
+
+        public object? ExecuteReversibly(object? sender, object? parameter)
+        {
+            throw new InvalidOperationException("Apply failed.");
+        }
+
+        public object? Revert(object? sender, object? parameter)
+        {
+            return true;
+        }
+    }
+
     /// <summary>
     /// Regular property.
     /// </summary>
@@ -238,6 +257,57 @@ public class ChangePropertyActionTests
         Assert.Equal("Second", target.Value);
         Assert.True((bool)second.Revert(null, null));
         Assert.Equal("Original", target.Value);
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
+    public void Revert_Coordinates_Reflection_And_Typed_Property_Actions()
+    {
+        var target = new TextBlock { Text = "Original" };
+        var reflectionAction = new ChangePropertyAction
+        {
+            PropertyName = nameof(TextBlock.Text),
+            Value = "Reflection"
+        };
+        var typedChange = new ReversiblePropertyChange<TextBlock, string?>(nameof(TextBlock.Text));
+
+        Assert.True((bool)((IReversibleAction)reflectionAction).ExecuteReversibly(target, null)!);
+        Assert.True(typedChange.Apply(
+            target,
+            "Typed",
+            static item => item.Text,
+            static (item, value) => item.Text = value));
+        Assert.Equal("Typed", target.Text);
+
+        Assert.True((bool)reflectionAction.Revert(target, null));
+        Assert.Equal("Typed", target.Text);
+        Assert.True(typedChange.Revert(static (item, value) => item.Text = value));
+        Assert.Equal("Original", target.Text);
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
+    public void ReversibleActionExecution_Unwinds_Applied_Actions_When_Later_Action_Throws()
+    {
+        var target = new TextBlock { Text = "Original" };
+        var propertyAction = new ChangePropertyAction
+        {
+            PropertyName = nameof(TextBlock.Text),
+            Value = "Applied"
+        };
+        var actions = new ActionCollection
+        {
+            propertyAction,
+            new ThrowingReversibleAction()
+        };
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ReversibleActionExecution.Execute(target, actions, parameter: null));
+        Assert.Equal("Original", target.Text);
+
+        Assert.True((bool)((IReversibleAction)propertyAction).ExecuteReversibly(target, null)!);
+        Assert.True((bool)propertyAction.Revert(target, null));
+        Assert.Equal("Original", target.Text);
     }
 
     private static Style CreateTextStyle(string className, string value)

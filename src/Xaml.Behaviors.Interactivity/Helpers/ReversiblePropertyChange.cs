@@ -7,25 +7,32 @@ using Avalonia.Data;
 
 namespace Avalonia.Xaml.Interactivity;
 
-/// <summary>
-/// Coordinates reversible, typed property changes across action instances.
-/// </summary>
-/// <typeparam name="TTarget">The target type.</typeparam>
-/// <typeparam name="TValue">The property value type.</typeparam>
-public sealed class ReversiblePropertyChange<TTarget, TValue>
+internal sealed class ReversiblePropertyChange
 {
-    private sealed class PropertyFrame(TValue value, IDisposable? temporaryValue)
+    internal delegate bool TryGetValue(out object? value);
+
+    internal delegate bool TrySetTemporaryValue(object? value, out IDisposable? reversion);
+
+    private sealed class PropertyFrame(
+        object? value,
+        Func<object?, bool> setter,
+        TrySetTemporaryValue temporarySetter,
+        IDisposable? temporaryValue)
     {
-        public TValue Value { get; set; } = value;
+        public object? Value { get; set; } = value;
+        public Func<object?, bool> Setter { get; set; } = setter;
+        public TrySetTemporaryValue TemporarySetter { get; set; } = temporarySetter;
         public IDisposable? TemporaryValue { get; set; } = temporaryValue;
     }
 
     private sealed class PropertyStack(
-        TValue originalValue,
-        AvaloniaProperty? avaloniaProperty)
+        object? originalValue,
+        Func<object?, bool> originalSetter,
+        bool useTemporaryValues)
     {
-        public TValue OriginalValue { get; } = originalValue;
-        public AvaloniaProperty? AvaloniaProperty { get; } = avaloniaProperty;
+        public object? OriginalValue { get; } = originalValue;
+        public Func<object?, bool> OriginalSetter { get; } = originalSetter;
+        public bool UseTemporaryValues { get; } = useTemporaryValues;
         public List<PropertyFrame> Frames { get; } = [];
     }
 
@@ -35,6 +42,219 @@ public sealed class ReversiblePropertyChange<TTarget, TValue>
     private object? _target;
     private PropertyFrame? _frame;
 
+    public ReversiblePropertyChange(string propertyName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(propertyName);
+        _propertyName = propertyName;
+    }
+
+    public bool Apply(
+        object target,
+        object? value,
+        TryGetValue getter,
+        Func<object?, bool> setter,
+        TrySetTemporaryValue temporarySetter,
+        bool isDirectProperty)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(getter);
+        ArgumentNullException.ThrowIfNull(setter);
+        ArgumentNullException.ThrowIfNull(temporarySetter);
+
+        if (isDirectProperty)
+        {
+            return false;
+        }
+
+        if (_frame is not null && ReferenceEquals(_target, target))
+        {
+            if (TryGetStack(target, out var existingStack))
+            {
+                var frameIndex = existingStack.Frames.IndexOf(_frame);
+                if (frameIndex >= 0)
+                {
+                    if (frameIndex == existingStack.Frames.Count - 1 &&
+                        !TryApplyValue(existingStack, _frame, value, setter, temporarySetter))
+                    {
+                        return false;
+                    }
+
+                    _frame.Value = value;
+                    _frame.Setter = setter;
+                    _frame.TemporarySetter = temporarySetter;
+                    return true;
+                }
+            }
+
+            ClearState();
+        }
+        else if (_frame is not null && !Revert())
+        {
+            return false;
+        }
+
+        var propertyStacks = s_propertyStacks.GetOrCreateValue(target);
+        var isNewStack = !propertyStacks.TryGetValue(_propertyName, out var propertyStack);
+        IDisposable? temporaryValue = null;
+
+        if (isNewStack)
+        {
+            if (!getter(out var originalValue))
+            {
+                if (propertyStacks.Count == 0)
+                {
+                    s_propertyStacks.Remove(target);
+                }
+
+                return false;
+            }
+
+            var useTemporaryValues = temporarySetter(value, out temporaryValue);
+            propertyStack = new PropertyStack(originalValue, setter, useTemporaryValues);
+            if (!useTemporaryValues && !setter(value))
+            {
+                if (propertyStacks.Count == 0)
+                {
+                    s_propertyStacks.Remove(target);
+                }
+
+                return false;
+            }
+        }
+        else if (propertyStack!.UseTemporaryValues)
+        {
+            if (!temporarySetter(value, out temporaryValue))
+            {
+                return false;
+            }
+        }
+        else if (!setter(value))
+        {
+            return false;
+        }
+
+        var frame = new PropertyFrame(value, setter, temporarySetter, temporaryValue);
+        propertyStack!.Frames.Add(frame);
+        if (isNewStack)
+        {
+            propertyStacks.Add(_propertyName, propertyStack);
+        }
+
+        _target = target;
+        _frame = frame;
+        return true;
+    }
+
+    public bool Revert()
+    {
+        if (_target is null ||
+            _frame is null ||
+            !TryGetStack(_target, out var propertyStack))
+        {
+            return false;
+        }
+
+        var frameIndex = propertyStack.Frames.IndexOf(_frame);
+        if (frameIndex < 0)
+        {
+            ClearState();
+            return false;
+        }
+
+        var isTopFrame = frameIndex == propertyStack.Frames.Count - 1;
+        if (propertyStack.UseTemporaryValues)
+        {
+            _frame.TemporaryValue?.Dispose();
+            if (isTopFrame && frameIndex > 0)
+            {
+                var precedingFrame = propertyStack.Frames[frameIndex - 1];
+                if (!precedingFrame.TemporarySetter(precedingFrame.Value, out var replacement))
+                {
+                    return false;
+                }
+
+                precedingFrame.TemporaryValue?.Dispose();
+                precedingFrame.TemporaryValue = replacement;
+            }
+        }
+        else if (isTopFrame)
+        {
+            var restored = frameIndex > 0
+                ? propertyStack.Frames[frameIndex - 1].Setter(propertyStack.Frames[frameIndex - 1].Value)
+                : propertyStack.OriginalSetter(propertyStack.OriginalValue);
+            if (!restored)
+            {
+                return false;
+            }
+        }
+
+        propertyStack.Frames.RemoveAt(frameIndex);
+        if (propertyStack.Frames.Count == 0 &&
+            s_propertyStacks.TryGetValue(_target, out var propertyStacks))
+        {
+            propertyStacks.Remove(_propertyName);
+            if (propertyStacks.Count == 0)
+            {
+                s_propertyStacks.Remove(_target);
+            }
+        }
+
+        ClearState();
+        return true;
+    }
+
+    private static bool TryApplyValue(
+        PropertyStack propertyStack,
+        PropertyFrame frame,
+        object? value,
+        Func<object?, bool> setter,
+        TrySetTemporaryValue temporarySetter)
+    {
+        if (!propertyStack.UseTemporaryValues)
+        {
+            return setter(value);
+        }
+
+        if (!temporarySetter(value, out var replacement))
+        {
+            return false;
+        }
+
+        frame.TemporaryValue?.Dispose();
+        frame.TemporaryValue = replacement;
+        return true;
+    }
+
+    private bool TryGetStack(object target, out PropertyStack propertyStack)
+    {
+        if (s_propertyStacks.TryGetValue(target, out var propertyStacks) &&
+            propertyStacks.TryGetValue(_propertyName, out var foundStack))
+        {
+            propertyStack = foundStack;
+            return true;
+        }
+
+        propertyStack = null!;
+        return false;
+    }
+
+    private void ClearState()
+    {
+        _target = null;
+        _frame = null;
+    }
+}
+
+/// <summary>
+/// Coordinates reversible, typed property changes across action instances.
+/// </summary>
+/// <typeparam name="TTarget">The target type.</typeparam>
+/// <typeparam name="TValue">The property value type.</typeparam>
+public sealed class ReversiblePropertyChange<TTarget, TValue>
+{
+    private readonly string _propertyName;
+    private readonly ReversiblePropertyChange _change;
+
     /// <summary>
     /// Initializes a new reversible property-change coordinator.
     /// </summary>
@@ -43,6 +263,7 @@ public sealed class ReversiblePropertyChange<TTarget, TValue>
     {
         ArgumentException.ThrowIfNullOrEmpty(propertyName);
         _propertyName = propertyName;
+        _change = new ReversiblePropertyChange(propertyName);
     }
 
     /// <summary>
@@ -64,77 +285,38 @@ public sealed class ReversiblePropertyChange<TTarget, TValue>
         ArgumentNullException.ThrowIfNull(setter);
 
         var targetObject = (object)target;
-        if (_frame is not null && ReferenceEquals(_target, targetObject))
-        {
-            if (TryGetStack(targetObject, out var existingStack))
-            {
-                var frameIndex = existingStack.Frames.IndexOf(_frame);
-                if (frameIndex >= 0)
-                {
-                    _frame.Value = value;
-                    if (frameIndex == existingStack.Frames.Count - 1)
-                    {
-                        if (existingStack.AvaloniaProperty is not null)
-                        {
-                            var replacement = SetTemporaryValue(
-                                (AvaloniaObject)targetObject,
-                                existingStack.AvaloniaProperty,
-                                value);
-                            _frame.TemporaryValue?.Dispose();
-                            _frame.TemporaryValue = replacement;
-                        }
-                        else
-                        {
-                            setter(target, value);
-                        }
-                    }
+        var avaloniaObject = targetObject as AvaloniaObject;
+        var avaloniaProperty = avaloniaObject is not null
+            ? AvaloniaPropertyRegistry.Instance.FindRegistered(avaloniaObject, _propertyName)
+            : null;
 
-                    return true;
-                }
-            }
+        return _change.Apply(
+            targetObject,
+            value,
+            TryGetValue,
+            SetValue,
+            SetTemporaryValue,
+            avaloniaProperty?.IsDirect == true);
 
-            ClearState();
-        }
-        else if (_frame is not null)
+        bool TryGetValue(out object? currentValue)
         {
-            Revert(setter);
+            currentValue = getter(target);
+            return true;
         }
 
-        AvaloniaProperty? avaloniaProperty = null;
-        if (targetObject is AvaloniaObject avaloniaObject)
+        bool SetValue(object? newValue)
         {
-            avaloniaProperty = AvaloniaPropertyRegistry.Instance.FindRegistered(avaloniaObject, _propertyName);
-            if (avaloniaProperty?.IsDirect == true)
-            {
-                return false;
-            }
+            setter(target, (TValue)newValue!);
+            return true;
         }
 
-        var propertyStacks = s_propertyStacks.GetOrCreateValue(targetObject);
-        if (!propertyStacks.TryGetValue(_propertyName, out var propertyStack))
+        bool SetTemporaryValue(object? newValue, out IDisposable? reversion)
         {
-            propertyStack = new PropertyStack(getter(target), avaloniaProperty);
-            propertyStacks.Add(_propertyName, propertyStack);
+            reversion = avaloniaProperty is null
+                ? null
+                : avaloniaObject!.SetValue(avaloniaProperty, newValue, BindingPriority.Animation);
+            return reversion is not null;
         }
-
-        IDisposable? temporaryValue = null;
-        if (propertyStack.AvaloniaProperty is not null)
-        {
-            temporaryValue = SetTemporaryValue(
-                (AvaloniaObject)targetObject,
-                propertyStack.AvaloniaProperty,
-                value);
-        }
-        else
-        {
-            setter(target, value);
-        }
-
-        var frame = new PropertyFrame(value, temporaryValue);
-        propertyStack.Frames.Add(frame);
-        _target = targetObject;
-        _frame = frame;
-        return true;
     }
 
     /// <summary>
@@ -145,83 +327,6 @@ public sealed class ReversiblePropertyChange<TTarget, TValue>
     public bool Revert(Action<TTarget, TValue> setter)
     {
         ArgumentNullException.ThrowIfNull(setter);
-        if (_target is not TTarget target ||
-            _frame is null ||
-            !TryGetStack(_target, out var propertyStack))
-        {
-            return false;
-        }
-
-        var frameIndex = propertyStack.Frames.IndexOf(_frame);
-        if (frameIndex < 0)
-        {
-            ClearState();
-            return false;
-        }
-
-        var isTopFrame = frameIndex == propertyStack.Frames.Count - 1;
-        if (propertyStack.AvaloniaProperty is not null)
-        {
-            _frame.TemporaryValue?.Dispose();
-            if (isTopFrame && frameIndex > 0)
-            {
-                var precedingFrame = propertyStack.Frames[frameIndex - 1];
-                var replacement = SetTemporaryValue(
-                    (AvaloniaObject)_target,
-                    propertyStack.AvaloniaProperty,
-                    precedingFrame.Value);
-                precedingFrame.TemporaryValue?.Dispose();
-                precedingFrame.TemporaryValue = replacement;
-            }
-        }
-        else if (isTopFrame)
-        {
-            var restoredValue = frameIndex > 0
-                ? propertyStack.Frames[frameIndex - 1].Value
-                : propertyStack.OriginalValue;
-            setter(target, restoredValue);
-        }
-
-        propertyStack.Frames.RemoveAt(frameIndex);
-        if (propertyStack.Frames.Count == 0 &&
-            s_propertyStacks.TryGetValue(_target, out var propertyStacks))
-        {
-            propertyStacks.Remove(_propertyName);
-            if (propertyStacks.Count == 0)
-            {
-                s_propertyStacks.Remove(_target);
-            }
-        }
-
-        ClearState();
-        return true;
-    }
-
-    private bool TryGetStack(object target, out PropertyStack propertyStack)
-    {
-        if (s_propertyStacks.TryGetValue(target, out var propertyStacks) &&
-            propertyStacks.TryGetValue(_propertyName, out var foundStack))
-        {
-            propertyStack = foundStack;
-            return true;
-        }
-
-        propertyStack = null!;
-        return false;
-    }
-
-    private static IDisposable SetTemporaryValue(
-        AvaloniaObject target,
-        AvaloniaProperty property,
-        TValue value)
-    {
-        return target.SetValue(property, value, BindingPriority.Animation) ??
-               throw new InvalidOperationException("The styled property did not provide a reversible value entry.");
-    }
-
-    private void ClearState()
-    {
-        _target = null;
-        _frame = null;
+        return _change.Revert();
     }
 }
