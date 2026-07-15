@@ -4,11 +4,6 @@ using Avalonia.Xaml.Interactivity;
 
 namespace Avalonia.Xaml.Interactions.Core;
 
-internal interface IReversibleActionExecution
-{
-    object? ExecuteReversibly(object? sender, object? parameter);
-}
-
 internal static class ReversibleActionExecution
 {
     public static void Execute(object? sender, ActionCollection? actions, object? parameter)
@@ -20,7 +15,7 @@ internal static class ReversibleActionExecution
 
         foreach (var item in actions)
         {
-            if (item is IReversibleActionExecution reversibleAction)
+            if (item is IReversibleAction reversibleAction)
             {
                 reversibleAction.ExecuteReversibly(sender, parameter);
             }

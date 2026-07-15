@@ -5,6 +5,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Styling;
 using Avalonia.Xaml.Interactions.Core;
+using Avalonia.Xaml.Interactivity;
 using Xunit;
 
 namespace Avalonia.Xaml.Interactions.UnitTests.Core;
@@ -70,7 +71,7 @@ public class ChangePropertyActionTests
         };
 
         Assert.Equal("First", target.Text);
-        Assert.True((bool)((IReversibleActionExecution)action).ExecuteReversibly(target, null)!);
+        Assert.True((bool)((IReversibleAction)action).ExecuteReversibly(target, null)!);
         Assert.Equal("Applied", target.Text);
         Assert.True((bool)action.Revert(target, null));
         Assert.Equal("First", target.Text);
@@ -142,8 +143,8 @@ public class ChangePropertyActionTests
             Value = "Second"
         };
 
-        Assert.True((bool)((IReversibleActionExecution)first).ExecuteReversibly(target, null)!);
-        Assert.True((bool)((IReversibleActionExecution)second).ExecuteReversibly(target, null)!);
+        Assert.True((bool)((IReversibleAction)first).ExecuteReversibly(target, null)!);
+        Assert.True((bool)((IReversibleAction)second).ExecuteReversibly(target, null)!);
         Assert.Equal("Second", target.Text);
 
         Assert.True((bool)first.Revert(target, null));
@@ -151,8 +152,8 @@ public class ChangePropertyActionTests
         Assert.True((bool)second.Revert(target, null));
         Assert.Equal("Original", target.Text);
 
-        Assert.True((bool)((IReversibleActionExecution)first).ExecuteReversibly(target, null)!);
-        Assert.True((bool)((IReversibleActionExecution)second).ExecuteReversibly(target, null)!);
+        Assert.True((bool)((IReversibleAction)first).ExecuteReversibly(target, null)!);
+        Assert.True((bool)((IReversibleAction)second).ExecuteReversibly(target, null)!);
         Assert.True((bool)second.Revert(target, null));
         Assert.Equal("First", target.Text);
         Assert.True((bool)first.Revert(target, null));
@@ -177,8 +178,8 @@ public class ChangePropertyActionTests
             Value = "Second"
         };
 
-        Assert.True((bool)((IReversibleActionExecution)first).ExecuteReversibly(null, null)!);
-        Assert.True((bool)((IReversibleActionExecution)second).ExecuteReversibly(null, null)!);
+        Assert.True((bool)((IReversibleAction)first).ExecuteReversibly(null, null)!);
+        Assert.True((bool)((IReversibleAction)second).ExecuteReversibly(null, null)!);
         Assert.True((bool)first.Revert(null, null));
         Assert.Equal("Second", target.Value);
         Assert.True((bool)second.Revert(null, null));

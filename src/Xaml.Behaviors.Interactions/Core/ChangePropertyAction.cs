@@ -12,7 +12,7 @@ namespace Avalonia.Xaml.Interactions.Core;
 /// An action that will change a specified property to a specified value when invoked.
 /// </summary>
 [RequiresUnreferencedCode("This functionality is not compatible with trimming.")]
-public class ChangePropertyAction : StyledElementAction, IReversibleAction, IReversibleActionExecution
+public class ChangePropertyAction : StyledElementAction, IReversibleAction
 {
     private sealed class PropertyFrame(object? value)
     {
@@ -94,12 +94,8 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction, IRev
         return ExecuteCore(sender, preserveValueSource: false);
     }
 
-    object? IReversibleActionExecution.ExecuteReversibly(object? sender, object? parameter)
-    {
-        return ExecuteReversibly(sender);
-    }
-
-    private object ExecuteReversibly(object? sender)
+    /// <inheritdoc />
+    public object? ExecuteReversibly(object? sender, object? parameter)
     {
         return ExecuteCore(sender, preserveValueSource: true);
     }

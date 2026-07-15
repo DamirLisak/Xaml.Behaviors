@@ -12,7 +12,7 @@ namespace Avalonia.Xaml.Interactions.UnitTests.Core;
 
 public class MultiDataTriggerBehaviorTests
 {
-    private sealed class ExecutionPathAction : StyledElementAction, IReversibleActionExecution
+    private sealed class ExecutionPathAction : StyledElementAction, IReversibleAction
     {
         public int LegacyExecutionCount { get; private set; }
         public int ReversibleExecutionCount { get; private set; }
@@ -23,9 +23,14 @@ public class MultiDataTriggerBehaviorTests
             return true;
         }
 
-        object? IReversibleActionExecution.ExecuteReversibly(object? sender, object? parameter)
+        public object? ExecuteReversibly(object? sender, object? parameter)
         {
             ReversibleExecutionCount++;
+            return true;
+        }
+
+        public object? Revert(object? sender, object? parameter)
+        {
             return true;
         }
     }
