@@ -236,6 +236,12 @@ namespace Xaml.Behaviors.SourceGenerators
                 return Diagnostic.Create(PropertySetterNotAccessibleDiagnostic, location, propertySymbol.Name, propertySymbol.ContainingType.ToDisplayString());
             }
 
+            if (propertySymbol.GetMethod is null ||
+                !IsAccessibleToGenerator(propertySymbol.GetMethod, compilation))
+            {
+                return Diagnostic.Create(PropertyGetterNotAccessibleDiagnostic, location, propertySymbol.Name, propertySymbol.ContainingType.ToDisplayString());
+            }
+
             if (propertySymbol.SetMethod?.IsInitOnly == true)
             {
                 return Diagnostic.Create(InitOnlySetterNotSupportedDiagnostic, location, propertySymbol.Name, propertySymbol.ContainingType.ToDisplayString());

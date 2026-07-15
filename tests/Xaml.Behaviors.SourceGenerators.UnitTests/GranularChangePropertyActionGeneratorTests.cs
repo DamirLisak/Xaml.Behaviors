@@ -246,6 +246,46 @@ namespace TestNamespace
     }
 
     [Fact]
+    public void Should_Report_Error_For_SetOnly_Property()
+    {
+        var source = @"
+using Xaml.Behaviors.SourceGenerators;
+
+namespace TestNamespace
+{
+    public partial class TestClass
+    {
+        [GenerateTypedChangePropertyAction]
+        public string TestProperty { set { } }
+    }
+}";
+        var (diagnostics, sources) = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Contains(diagnostics, d => d.Id == "XBG035");
+        Assert.DoesNotContain(sources, sourceText => sourceText.Contains("SetTestPropertyAction"));
+    }
+
+    [Fact]
+    public void Should_Report_Error_For_Inaccessible_Getter()
+    {
+        var source = @"
+using Xaml.Behaviors.SourceGenerators;
+
+namespace TestNamespace
+{
+    public partial class TestClass
+    {
+        [GenerateTypedChangePropertyAction]
+        public string TestProperty { private get; set; } = string.Empty;
+    }
+}";
+        var (diagnostics, sources) = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Contains(diagnostics, d => d.Id == "XBG035");
+        Assert.DoesNotContain(sources, sourceText => sourceText.Contains("SetTestPropertyAction"));
+    }
+
+    [Fact]
     public void Should_Report_Error_For_InitOnly_Setter()
     {
         var source = @"
