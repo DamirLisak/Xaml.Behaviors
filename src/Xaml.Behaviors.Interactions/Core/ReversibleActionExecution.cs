@@ -19,8 +19,11 @@ internal static class ReversibleActionExecution
         {
             if (item is IReversibleAction reversibleAction)
             {
-                reversibleAction.ExecuteReversibly(sender, parameter);
-                appliedActions.Add(reversibleAction);
+                var result = reversibleAction.ExecuteReversibly(sender, parameter);
+                if (result is not false)
+                {
+                    appliedActions.Add(reversibleAction);
+                }
             }
             else if (item is IAction action)
             {

@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Avalonia.Headless.XUnit;
+using Avalonia.Xaml.Interactivity;
 using Xunit;
 
 namespace Avalonia.Xaml.Behaviors.SourceGenerators.UnitTests;
@@ -18,6 +19,47 @@ public class ChangePropertyActionGeneratorTests
         action.Execute(control, null);
         
         Assert.Equal("TagValue", control.Tag);
+    }
+
+    [AvaloniaFact]
+    public void SetTagAction_Should_Revert_Property()
+    {
+        var control = new TestControl { Tag = "Original" };
+        var action = Assert.IsAssignableFrom<IReversibleAction>(
+            GeneratedTypeHelper.CreateInstance(
+                "TestControlSetTagAction",
+                "Avalonia.Xaml.Behaviors.SourceGenerators.UnitTests"));
+        ((dynamic)action).Value = "Applied";
+
+        Assert.True((bool)action.ExecuteReversibly(control, null)!);
+        Assert.Equal("Applied", control.Tag);
+        Assert.True((bool)action.Revert(control, null)!);
+        Assert.Equal("Original", control.Tag);
+    }
+
+    [AvaloniaFact]
+    public void SetTagAction_Should_Preserve_Overlapping_Reversible_Actions()
+    {
+        var control = new TestControl { Tag = "Original" };
+        var first = Assert.IsAssignableFrom<IReversibleAction>(
+            GeneratedTypeHelper.CreateInstance(
+                "TestControlSetTagAction",
+                "Avalonia.Xaml.Behaviors.SourceGenerators.UnitTests"));
+        var second = Assert.IsAssignableFrom<IReversibleAction>(
+            GeneratedTypeHelper.CreateInstance(
+                "TestControlSetTagAction",
+                "Avalonia.Xaml.Behaviors.SourceGenerators.UnitTests"));
+        ((dynamic)first).Value = "First";
+        ((dynamic)second).Value = "Second";
+
+        Assert.True((bool)first.ExecuteReversibly(control, null)!);
+        Assert.True((bool)second.ExecuteReversibly(control, null)!);
+        Assert.Equal("Second", control.Tag);
+
+        Assert.True((bool)first.Revert(control, null)!);
+        Assert.Equal("Second", control.Tag);
+        Assert.True((bool)second.Revert(control, null)!);
+        Assert.Equal("Original", control.Tag);
     }
 
     [Fact]

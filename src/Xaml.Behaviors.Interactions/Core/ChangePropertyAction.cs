@@ -175,6 +175,13 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
 
         if (preserveValueSource &&
             !_isApplied &&
+            PropertyHelper.IsDirectAvaloniaProperty(targetObject, propertyName))
+        {
+            return false;
+        }
+
+        if (preserveValueSource &&
+            !_isApplied &&
             TryApplyStackedValue(targetObject, propertyName, Value))
         {
             return true;

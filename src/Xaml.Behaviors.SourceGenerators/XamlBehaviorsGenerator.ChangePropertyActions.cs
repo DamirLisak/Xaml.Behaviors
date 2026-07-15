@@ -87,14 +87,37 @@ namespace Xaml.Behaviors.SourceGenerators
             sb.AppendLine("using Avalonia.Xaml.Interactivity;");
             sb.AppendLine("using Avalonia.Controls;");
             sb.AppendLine("using Avalonia.Threading;");
+            sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using System.Runtime.CompilerServices;");
+            sb.AppendLine("using System.Threading;");
             sb.AppendLine();
             if (!string.IsNullOrEmpty(info.Namespace))
             {
                 sb.AppendLine($"namespace {info.Namespace}");
                 sb.AppendLine("{");
             }
-            sb.AppendLine($"    {info.Accessibility} partial class {info.ClassName} : Avalonia.Xaml.Interactivity.StyledElementAction");
+            sb.AppendLine($"    {info.Accessibility} partial class {info.ClassName} : Avalonia.Xaml.Interactivity.StyledElementAction, Avalonia.Xaml.Interactivity.IReversibleAction");
             sb.AppendLine("    {");
+            sb.AppendLine($"        private sealed class ReversiblePropertyFrame({info.PropertyType} value)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            public {info.PropertyType} Value {{ get; set; }} = value;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine($"        private sealed class ReversiblePropertyStack({info.PropertyType} originalValue)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            public {info.PropertyType} OriginalValue {{ get; }} = originalValue;");
+            sb.AppendLine("            public List<ReversiblePropertyFrame> Frames { get; } = new();");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        private static readonly ConditionalWeakTable<object, ReversiblePropertyStack> s_reversiblePropertyStacks = new();");
+            sb.AppendLine("        private object? _reversibleTarget;");
+            sb.AppendLine("        private ReversiblePropertyFrame? _reversibleFrame;");
+            if (info.UseDispatcher)
+            {
+                sb.AppendLine("        private int _reversibleState;");
+                sb.AppendLine("        private int _reversibleVersion;");
+            }
+            sb.AppendLine();
             sb.AppendLine($"        public static readonly StyledProperty<object?> TargetObjectProperty =");
             sb.AppendLine($"            AvaloniaProperty.Register<{info.ClassName}, object?>(nameof(TargetObject));");
             sb.AppendLine();
@@ -129,6 +152,139 @@ namespace Xaml.Behaviors.SourceGenerators
             sb.AppendLine("                return true;");
             sb.AppendLine("            }");
             sb.AppendLine("            return false;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        public object? ExecuteReversibly(object? sender, object? parameter)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var target = TargetObject ?? sender;");
+            sb.AppendLine($"            if (target is {info.TargetTypeName} typedTarget)");
+            sb.AppendLine("            {");
+            if (info.UseDispatcher)
+            {
+                sb.AppendLine("                var version = Interlocked.Increment(ref _reversibleVersion);");
+                sb.AppendLine("                Volatile.Write(ref _reversibleState, 1);");
+                sb.AppendLine("                Avalonia.Threading.Dispatcher.UIThread.Post(() =>");
+                sb.AppendLine("                {");
+                sb.AppendLine("                    if (Volatile.Read(ref _reversibleVersion) != version)");
+                sb.AppendLine("                    {");
+                sb.AppendLine("                        return;");
+                sb.AppendLine("                    }");
+                sb.AppendLine();
+                sb.AppendLine("                    ApplyReversibleCore(typedTarget);");
+                sb.AppendLine("                });");
+            }
+            else
+            {
+                sb.AppendLine("                return ApplyReversibleCore(typedTarget);");
+            }
+            if (info.UseDispatcher)
+            {
+                sb.AppendLine("                return true;");
+            }
+            sb.AppendLine("            }");
+            sb.AppendLine("            return false;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        public object? Revert(object? sender, object? parameter)");
+            sb.AppendLine("        {");
+            if (info.UseDispatcher)
+            {
+                sb.AppendLine("            if (Interlocked.CompareExchange(ref _reversibleState, 2, 1) != 1)");
+                sb.AppendLine("            {");
+                sb.AppendLine("                return false;");
+                sb.AppendLine("            }");
+                sb.AppendLine();
+                sb.AppendLine("            var version = Interlocked.Increment(ref _reversibleVersion);");
+                sb.AppendLine("            Avalonia.Threading.Dispatcher.UIThread.Post(() =>");
+                sb.AppendLine("            {");
+                sb.AppendLine("                if (Volatile.Read(ref _reversibleVersion) != version)");
+                sb.AppendLine("                {");
+                sb.AppendLine("                    return;");
+                sb.AppendLine("                }");
+                sb.AppendLine();
+                sb.AppendLine("                RevertCore();");
+                sb.AppendLine("                Volatile.Write(ref _reversibleState, 0);");
+                sb.AppendLine("            });");
+                sb.AppendLine("            return true;");
+            }
+            else
+            {
+                sb.AppendLine("            return RevertCore();");
+            }
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine($"        private bool ApplyReversibleCore({info.TargetTypeName} typedTarget)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (_reversibleFrame is not null && ReferenceEquals(_reversibleTarget, typedTarget))");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (s_reversiblePropertyStacks.TryGetValue(typedTarget, out var existingStack))");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    var existingIndex = existingStack.Frames.IndexOf(_reversibleFrame);");
+            sb.AppendLine("                    if (existingIndex >= 0)");
+            sb.AppendLine("                    {");
+            sb.AppendLine("                        _reversibleFrame.Value = Value;");
+            sb.AppendLine("                        if (existingIndex == existingStack.Frames.Count - 1)");
+            sb.AppendLine("                        {");
+            sb.AppendLine($"                            typedTarget.{info.PropertyName} = Value;");
+            sb.AppendLine("                        }");
+            sb.AppendLine();
+            sb.AppendLine("                        return true;");
+            sb.AppendLine("                    }");
+            sb.AppendLine("                }");
+            sb.AppendLine();
+            sb.AppendLine("                _reversibleTarget = null;");
+            sb.AppendLine("                _reversibleFrame = null;");
+            sb.AppendLine("            }");
+            sb.AppendLine("            else if (_reversibleFrame is not null)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                RevertCore();");
+            sb.AppendLine("            }");
+            sb.AppendLine();
+            sb.AppendLine("            var propertyStack = s_reversiblePropertyStacks.GetValue(");
+            sb.AppendLine("                typedTarget,");
+            sb.AppendLine($"                static target => new ReversiblePropertyStack((({info.TargetTypeName})target).{info.PropertyName}));");
+            sb.AppendLine("            var propertyFrame = new ReversiblePropertyFrame(Value);");
+            sb.AppendLine("            propertyStack.Frames.Add(propertyFrame);");
+            sb.AppendLine($"            typedTarget.{info.PropertyName} = Value;");
+            sb.AppendLine("            _reversibleTarget = typedTarget;");
+            sb.AppendLine("            _reversibleFrame = propertyFrame;");
+            sb.AppendLine("            return true;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        private bool RevertCore()");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            if (_reversibleTarget is not {info.TargetTypeName} typedTarget ||");
+            sb.AppendLine("                _reversibleFrame is null ||");
+            sb.AppendLine("                !s_reversiblePropertyStacks.TryGetValue(typedTarget, out var propertyStack))");
+            sb.AppendLine("            {");
+            sb.AppendLine("                return false;");
+            sb.AppendLine("            }");
+            sb.AppendLine();
+            sb.AppendLine("            var frameIndex = propertyStack.Frames.IndexOf(_reversibleFrame);");
+            sb.AppendLine("            if (frameIndex < 0)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                _reversibleTarget = null;");
+            sb.AppendLine("                _reversibleFrame = null;");
+            sb.AppendLine("                return false;");
+            sb.AppendLine("            }");
+            sb.AppendLine();
+            sb.AppendLine("            if (frameIndex == propertyStack.Frames.Count - 1)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                var restoredValue = frameIndex > 0");
+            sb.AppendLine("                    ? propertyStack.Frames[frameIndex - 1].Value");
+            sb.AppendLine("                    : propertyStack.OriginalValue;");
+            sb.AppendLine($"                typedTarget.{info.PropertyName} = restoredValue;");
+            sb.AppendLine("            }");
+            sb.AppendLine();
+            sb.AppendLine("            propertyStack.Frames.RemoveAt(frameIndex);");
+            sb.AppendLine("            if (propertyStack.Frames.Count == 0)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                s_reversiblePropertyStacks.Remove(typedTarget);");
+            sb.AppendLine("            }");
+            sb.AppendLine();
+            sb.AppendLine("            _reversibleTarget = null;");
+            sb.AppendLine("            _reversibleFrame = null;");
+            sb.AppendLine("            return true;");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             if (!string.IsNullOrEmpty(info.Namespace))

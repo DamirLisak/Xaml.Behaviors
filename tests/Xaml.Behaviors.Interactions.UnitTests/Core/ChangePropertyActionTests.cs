@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -108,6 +109,29 @@ public class ChangePropertyActionTests
         Assert.True((bool)action.Revert(target, null));
         Assert.Equal("Second", target.Text);
         window.Close();
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
+    public void ExecuteReversibly_Does_Not_Apply_To_Direct_Avalonia_Property()
+    {
+        var source = new StyledPropertySource { Value = "Original" };
+        var target = new DirectPropertyTarget();
+        using var binding = target.Bind(
+            DirectPropertyTarget.ValueProperty,
+            source.GetObservable(StyledPropertySource.ValueProperty));
+        var action = new ChangePropertyAction
+        {
+            TargetObject = target,
+            PropertyName = nameof(DirectPropertyTarget.Value),
+            Value = "Applied"
+        };
+
+        Assert.False((bool)((IReversibleAction)action).ExecuteReversibly(null, null)!);
+        Assert.Equal("Original", target.Value);
+        source.Value = "Latest";
+        Assert.Equal("Latest", target.Value);
+        Assert.False((bool)action.Revert(null, null));
     }
 
     [AvaloniaFact]
@@ -240,5 +264,34 @@ public class ChangePropertyActionTests
     private sealed class ReadWriteTarget
     {
         public string? Value { get; set; }
+    }
+
+    private sealed class DirectPropertyTarget : AvaloniaObject
+    {
+        private string? _value;
+
+        public static readonly DirectProperty<DirectPropertyTarget, string?> ValueProperty =
+            AvaloniaProperty.RegisterDirect<DirectPropertyTarget, string?>(
+                nameof(Value),
+                target => target.Value,
+                (target, value) => target.Value = value);
+
+        public string? Value
+        {
+            get => _value;
+            set => SetAndRaise(ValueProperty, ref _value, value);
+        }
+    }
+
+    private sealed class StyledPropertySource : AvaloniaObject
+    {
+        public static readonly StyledProperty<string?> ValueProperty =
+            AvaloniaProperty.Register<StyledPropertySource, string?>(nameof(Value));
+
+        public string? Value
+        {
+            get => GetValue(ValueProperty);
+            set => SetValue(ValueProperty, value);
+        }
     }
 }

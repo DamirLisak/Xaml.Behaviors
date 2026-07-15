@@ -26,6 +26,9 @@ namespace TestNamespace
         Assert.NotNull(generated);
         Assert.Contains("namespace TestNamespace", generated);
         Assert.Contains("public static readonly StyledProperty<string", generated);
+        Assert.Contains("Avalonia.Xaml.Interactivity.IReversibleAction", generated);
+        Assert.Contains("public object? ExecuteReversibly", generated);
+        Assert.Contains("public object? Revert", generated);
         Assert.Contains("typedTarget.TestProperty = Value;", generated);
     }
 

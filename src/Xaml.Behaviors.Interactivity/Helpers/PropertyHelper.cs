@@ -274,6 +274,19 @@ internal static class PropertyHelper
         }
     }
 
+    public static bool IsDirectAvaloniaProperty(object targetObject, string propertyName)
+    {
+        if (targetObject is not AvaloniaObject avaloniaObject)
+        {
+            return false;
+        }
+
+        var property = propertyName.Contains('.')
+            ? FindAvaloniaAttachedProperty(targetObject, propertyName)
+            : AvaloniaPropertyRegistry.Instance.FindRegistered(avaloniaObject, propertyName);
+        return property?.IsDirect == true;
+    }
+
     private static object? ConvertAvaloniaPropertyValue(AvaloniaProperty property, object? value)
     {
         var propertyType = property.PropertyType;
