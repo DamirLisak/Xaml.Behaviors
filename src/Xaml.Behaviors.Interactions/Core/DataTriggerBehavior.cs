@@ -1,5 +1,7 @@
 ﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using Avalonia.Threading;
 using Avalonia.Xaml.Interactivity;
@@ -14,6 +16,8 @@ public class DataTriggerBehavior : StyledElementTrigger
 {
     private bool _isConditionMet;
     private bool _hasConditionState;
+    private readonly List<IReversibleAction> _appliedActions = [];
+    private ActionCollection? _subscribedActions;
 
     /// <summary>
     /// Identifies the <seealso cref="Binding"/> avalonia property.
@@ -106,6 +110,14 @@ public class DataTriggerBehavior : StyledElementTrigger
             _hasConditionState = false;
             OnValueChanged(change);
         }
+
+        if (change.Property == ActionsProperty && AssociatedObject is not null)
+        {
+            UpdateActionSubscription(change.GetNewValue<ActionCollection?>());
+            RevertActions(change);
+            _hasConditionState = false;
+            OnValueChanged(change);
+        }
     }
 
     /// <inheritdoc />
@@ -117,6 +129,13 @@ public class DataTriggerBehavior : StyledElementTrigger
     }
 
     /// <inheritdoc />
+    protected override void OnAttached()
+    {
+        base.OnAttached();
+        UpdateActionSubscription(Actions);
+    }
+
+    /// <inheritdoc />
     protected override void OnDetaching()
     {
         if (RevertOnFalse)
@@ -125,6 +144,7 @@ public class DataTriggerBehavior : StyledElementTrigger
         }
 
         _hasConditionState = false;
+        UpdateActionSubscription(actions: null);
         base.OnDetaching();
     }
 
@@ -177,7 +197,7 @@ public class DataTriggerBehavior : StyledElementTrigger
 
             if (isConditionMet)
             {
-                ReversibleActionExecution.Execute(AssociatedObject, Actions, parameter);
+                ApplyActions(parameter);
             }
 
             return;
@@ -192,7 +212,7 @@ public class DataTriggerBehavior : StyledElementTrigger
 
         if (isConditionMet)
         {
-            ReversibleActionExecution.Execute(AssociatedObject, Actions, parameter);
+            ApplyActions(parameter);
             return;
         }
 
@@ -201,17 +221,48 @@ public class DataTriggerBehavior : StyledElementTrigger
 
     private void RevertActions(object? parameter)
     {
-        if (AssociatedObject is null || Actions is null)
+        if (AssociatedObject is null)
         {
             return;
         }
 
-        for (var index = Actions.Count - 1; index >= 0; index--)
+        for (var index = _appliedActions.Count - 1; index >= 0; index--)
         {
-            if (Actions[index] is IReversibleAction reversibleAction)
-            {
-                reversibleAction.Revert(AssociatedObject, parameter);
-            }
+            _appliedActions[index].Revert(AssociatedObject, parameter);
         }
+
+        _appliedActions.Clear();
+    }
+
+    private void ApplyActions(object? parameter)
+    {
+        _appliedActions.Clear();
+        _appliedActions.AddRange(ReversibleActionExecution.Execute(AssociatedObject, Actions, parameter));
+    }
+
+    private void UpdateActionSubscription(ActionCollection? actions)
+    {
+        if (_subscribedActions is not null)
+        {
+            _subscribedActions.CollectionChanged -= ActionsCollectionChanged;
+        }
+
+        _subscribedActions = actions;
+        if (_subscribedActions is not null)
+        {
+            _subscribedActions.CollectionChanged += ActionsCollectionChanged;
+        }
+    }
+
+    private void ActionsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs eventArgs)
+    {
+        if (!RevertOnFalse || AssociatedObject is null)
+        {
+            return;
+        }
+
+        RevertActions(eventArgs);
+        _hasConditionState = false;
+        Dispatcher.UIThread.Post(() => Execute(eventArgs));
     }
 }

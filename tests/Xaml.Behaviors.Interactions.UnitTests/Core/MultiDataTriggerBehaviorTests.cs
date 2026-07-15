@@ -215,6 +215,37 @@ public class MultiDataTriggerBehaviorTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property actions.")]
+    public void MultiDataTriggerBehavior_003_Reconciles_Actions_While_Active()
+    {
+        var window = new MultiDataTriggerBehavior003();
+        window.Show();
+        var behavior = Assert.IsType<MultiDataTriggerBehavior>(Assert.Single(
+            Interaction.GetBehaviors(window.TargetTextBlock)));
+        window.Click(window.TargetCheckBox);
+        window.TargetSlider.Focus();
+        window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+
+        behavior.Actions!.Clear();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+
+        behavior.Actions.Add(new ChangePropertyAction
+        {
+            PropertyName = nameof(TextBlock.Text),
+            Value = "Blue",
+        });
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Blue", window.TargetTextBlock.Text);
+
+        window.Click(window.TargetCheckBox);
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+        window.Close();
+    }
+
     [RequiresUnreferencedCode("Test helper intentionally constructs a reflection-based trigger.")]
     private static MultiDataTriggerBehavior CreateBehavior(bool revertOnFalse, ExecutionPathAction action)
     {

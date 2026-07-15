@@ -33,8 +33,10 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
 
     private bool _isConditionMet;
     private bool _hasConditionState;
+    private readonly List<IReversibleAction> _appliedActions = [];
     private readonly HashSet<Condition> _subscribedConditions = [];
     private readonly Dictionary<Condition, IDisposable?> _propertySubscriptions = [];
+    private ActionCollection? _subscribedActions;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MultiDataTriggerBehavior"/> class.
@@ -95,6 +97,14 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
             _hasConditionState = false;
             ScheduleExecute(change);
         }
+
+        if (change.Property == ActionsProperty && AssociatedObject is not null)
+        {
+            UpdateActionSubscription(change.GetNewValue<ActionCollection?>());
+            RevertActions(change);
+            _hasConditionState = false;
+            ScheduleExecute(change);
+        }
     }
 
     /// <inheritdoc />
@@ -107,6 +117,13 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
     }
 
     /// <inheritdoc />
+    protected override void OnAttached()
+    {
+        base.OnAttached();
+        UpdateActionSubscription(Actions);
+    }
+
+    /// <inheritdoc />
     protected override void OnDetaching()
     {
         if (RevertOnFalse)
@@ -115,6 +132,7 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
         }
 
         _hasConditionState = false;
+        UpdateActionSubscription(actions: null);
         base.OnDetaching();
     }
 
@@ -399,7 +417,7 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
 
             if (isConditionMet)
             {
-                ReversibleActionExecution.Execute(AssociatedObject, Actions, parameter);
+                ApplyActions(parameter);
             }
 
             return;
@@ -414,7 +432,7 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
 
         if (isConditionMet)
         {
-            ReversibleActionExecution.Execute(AssociatedObject, Actions, parameter);
+            ApplyActions(parameter);
             return;
         }
 
@@ -447,18 +465,49 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
 
     private void RevertActions(object? parameter)
     {
-        if (AssociatedObject is null || Actions is null)
+        if (AssociatedObject is null)
         {
             return;
         }
 
-        for (var index = Actions.Count - 1; index >= 0; index--)
+        for (var index = _appliedActions.Count - 1; index >= 0; index--)
         {
-            if (Actions[index] is IReversibleAction reversibleAction)
-            {
-                reversibleAction.Revert(AssociatedObject, parameter);
-            }
+            _appliedActions[index].Revert(AssociatedObject, parameter);
         }
+
+        _appliedActions.Clear();
+    }
+
+    private void ApplyActions(object? parameter)
+    {
+        _appliedActions.Clear();
+        _appliedActions.AddRange(ReversibleActionExecution.Execute(AssociatedObject, Actions, parameter));
+    }
+
+    private void UpdateActionSubscription(ActionCollection? actions)
+    {
+        if (_subscribedActions is not null)
+        {
+            _subscribedActions.CollectionChanged -= ActionsCollectionChanged;
+        }
+
+        _subscribedActions = actions;
+        if (_subscribedActions is not null)
+        {
+            _subscribedActions.CollectionChanged += ActionsCollectionChanged;
+        }
+    }
+
+    private void ActionsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs eventArgs)
+    {
+        if (!RevertOnFalse || AssociatedObject is null)
+        {
+            return;
+        }
+
+        RevertActions(eventArgs);
+        _hasConditionState = false;
+        Dispatcher.UIThread.Post(() => Execute(eventArgs));
     }
 
     private bool TryGetConditionValue(Condition condition, out object? value)

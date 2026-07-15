@@ -148,4 +148,32 @@ public class DataTriggerBehaviorTests
         Assert.Equal("Red", window.TargetTextBlock.Text);
         window.Close();
     }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property actions.")]
+    public void DataTriggerBehavior_004_Reconciles_Actions_While_Active()
+    {
+        var window = new DataTriggerBehavior004();
+        window.Show();
+        var behavior = Assert.IsType<DataTriggerBehavior>(Assert.Single(
+            Interaction.GetBehaviors(window.TargetTextBlock)));
+        window.Click(window.TargetCheckBox);
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+
+        behavior.Actions!.Clear();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+
+        behavior.Actions.Add(new ChangePropertyAction
+        {
+            PropertyName = nameof(Avalonia.Controls.TextBlock.Text),
+            Value = "Blue",
+        });
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Blue", window.TargetTextBlock.Text);
+
+        window.Click(window.TargetCheckBox);
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+        window.Close();
+    }
 }
