@@ -116,9 +116,12 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
         if (change.Property == ActionsProperty && AssociatedObject is not null)
         {
             UpdateActionSubscription(change.GetNewValue<ActionCollection?>());
-            RevertActions(change);
-            _hasConditionState = false;
-            ScheduleExecute(change);
+            if (RevertOnFalse)
+            {
+                RevertActions(change);
+                _hasConditionState = false;
+                ScheduleExecute(change);
+            }
         }
     }
 

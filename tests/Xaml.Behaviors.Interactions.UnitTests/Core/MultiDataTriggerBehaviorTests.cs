@@ -217,6 +217,28 @@ public class MultiDataTriggerBehaviorTests
     }
 
     [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally constructs a reflection-based trigger.")]
+    public void MultiDataTriggerBehavior_Does_Not_Execute_Replaced_Actions_In_Legacy_Mode()
+    {
+        var initialAction = new ExecutionPathAction();
+        var replacementAction = new ExecutionPathAction();
+        var behavior = CreateBehavior(revertOnFalse: false, initialAction);
+        var button = new Button { IsEnabled = true };
+        Interaction.SetBehaviors(button, new BehaviorCollection { behavior });
+        var window = new Window { Content = button };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(initialAction.LegacyExecutionCount > 0);
+
+        behavior.Actions = new ActionCollection { replacementAction };
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, replacementAction.LegacyExecutionCount);
+        Assert.Equal(0, replacementAction.ReversibleExecutionCount);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     [RequiresUnreferencedCode("Test intentionally exercises reflection-based property actions.")]
     public void MultiDataTriggerBehavior_003_Reverts_And_Clears_State_When_Removed()
     {

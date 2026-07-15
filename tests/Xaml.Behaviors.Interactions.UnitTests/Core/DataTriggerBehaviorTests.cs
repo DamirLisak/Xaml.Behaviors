@@ -11,6 +11,17 @@ namespace Avalonia.Xaml.Interactions.UnitTests.Core;
 
 public class DataTriggerBehaviorTests
 {
+    private sealed class CountingAction : StyledElementAction
+    {
+        public int ExecutionCount { get; private set; }
+
+        public override object Execute(object? sender, object? parameter)
+        {
+            ExecutionCount++;
+            return true;
+        }
+    }
+
     [AvaloniaFact]
     public void DataTriggerBehavior_001()
     {
@@ -147,6 +158,32 @@ public class DataTriggerBehaviorTests
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal("Red", window.TargetTextBlock.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally constructs a reflection-based trigger.")]
+    public void DataTriggerBehavior_Does_Not_Execute_Replaced_Actions_In_Legacy_Mode()
+    {
+        var initialAction = new CountingAction();
+        var replacementAction = new CountingAction();
+        var button = new Avalonia.Controls.Button();
+        var behavior = new DataTriggerBehavior
+        {
+            Binding = true,
+            Value = true,
+            Actions = new ActionCollection { initialAction },
+        };
+        Interaction.SetBehaviors(button, new BehaviorCollection { behavior });
+        var window = new Avalonia.Controls.Window { Content = button };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(initialAction.ExecutionCount > 0);
+
+        behavior.Actions = new ActionCollection { replacementAction };
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, replacementAction.ExecutionCount);
         window.Close();
     }
 

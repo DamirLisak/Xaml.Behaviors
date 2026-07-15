@@ -129,9 +129,12 @@ public class DataTriggerBehavior : StyledElementTrigger
         if (change.Property == ActionsProperty && AssociatedObject is not null)
         {
             UpdateActionSubscription(change.GetNewValue<ActionCollection?>());
-            RevertActions(change);
-            _hasConditionState = false;
-            OnValueChanged(change);
+            if (RevertOnFalse)
+            {
+                RevertActions(change);
+                _hasConditionState = false;
+                OnValueChanged(change);
+            }
         }
     }
 
