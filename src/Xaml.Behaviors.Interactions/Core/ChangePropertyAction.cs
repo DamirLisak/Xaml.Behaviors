@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Wiesław Šoltés. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for details.
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -14,15 +15,20 @@ namespace Avalonia.Xaml.Interactions.Core;
 [RequiresUnreferencedCode("This functionality is not compatible with trimming.")]
 public class ChangePropertyAction : StyledElementAction, IReversibleAction
 {
-    private sealed class PropertyFrame(object? value)
+    private sealed class PropertyFrame(object? value, IDisposable? temporaryValue)
     {
         public object? Value { get; set; } = value;
+        public IDisposable? TemporaryValue { get; set; } = temporaryValue;
     }
 
-    private sealed class PropertyStack(object? originalValue, bool preserveValueSource)
+    private sealed class PropertyStack(
+        object? originalValue,
+        bool preserveValueSource,
+        bool useTemporaryValues)
     {
         public object? OriginalValue { get; } = originalValue;
         public bool PreserveValueSource { get; } = preserveValueSource;
+        public bool UseTemporaryValues { get; } = useTemporaryValues;
         public List<PropertyFrame> Frames { get; } = [];
     }
 
@@ -124,6 +130,36 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
             _propertyStack is not null &&
             _propertyFrame is not null)
         {
+            var frameIndex = _propertyStack.Frames.IndexOf(_propertyFrame);
+            if (frameIndex < 0)
+            {
+                ClearSnapshot();
+                return false;
+            }
+
+            if (frameIndex < _propertyStack.Frames.Count - 1)
+            {
+                _propertyFrame.Value = Value;
+                return true;
+            }
+
+            if (_propertyStack.UseTemporaryValues)
+            {
+                if (!PropertyHelper.TrySetTemporaryAvaloniaPropertyValue(
+                        targetObject,
+                        propertyName,
+                        Value,
+                        out var replacementTemporaryValue))
+                {
+                    return false;
+                }
+
+                _propertyFrame.TemporaryValue?.Dispose();
+                _propertyFrame.TemporaryValue = replacementTemporaryValue;
+                _propertyFrame.Value = Value;
+                return true;
+            }
+
             var updatedFrame = PropertyHelper.UpdatePropertyValue(
                 targetObject,
                 propertyName,
@@ -240,26 +276,62 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
                 return false;
             }
 
-            propertyStack = new PropertyStack(originalValue, capturedPreserveValueSource);
+            IDisposable? initialTemporaryValue = null;
+            var useTemporaryValues = capturedPreserveValueSource &&
+                                     PropertyHelper.TrySetTemporaryAvaloniaPropertyValue(
+                                         targetObject,
+                                         propertyName,
+                                         value,
+                                         out initialTemporaryValue);
+            propertyStack = new PropertyStack(
+                originalValue,
+                capturedPreserveValueSource,
+                useTemporaryValues);
+
+            if (useTemporaryValues)
+            {
+                var initialFrame = new PropertyFrame(value, initialTemporaryValue);
+                propertyStack.Frames.Add(initialFrame);
+                propertyStacks.Add(propertyName, propertyStack);
+                SetAppliedState(targetObject, propertyName, propertyStack, initialFrame);
+                return true;
+            }
         }
 
-        var updated = PropertyHelper.UpdatePropertyValue(
-            targetObject,
-            propertyName,
-            value,
-            propertyStack!.PreserveValueSource);
+        IDisposable? frameTemporaryValue = null;
+        var updated = propertyStack!.UseTemporaryValues
+            ? PropertyHelper.TrySetTemporaryAvaloniaPropertyValue(
+                targetObject,
+                propertyName,
+                value,
+                out frameTemporaryValue)
+            : PropertyHelper.UpdatePropertyValue(
+                targetObject,
+                propertyName,
+                value,
+                propertyStack.PreserveValueSource);
         if (!updated)
         {
             return false;
         }
 
-        var propertyFrame = new PropertyFrame(value);
+        var propertyFrame = new PropertyFrame(value, frameTemporaryValue);
         propertyStack.Frames.Add(propertyFrame);
         if (isNewStack)
         {
             propertyStacks.Add(propertyName, propertyStack);
         }
 
+        SetAppliedState(targetObject, propertyName, propertyStack, propertyFrame);
+        return true;
+    }
+
+    private void SetAppliedState(
+        object targetObject,
+        string propertyName,
+        PropertyStack propertyStack,
+        PropertyFrame propertyFrame)
+    {
         _previousTargetObject = targetObject;
         _previousPropertyName = propertyName;
         _previousValue = propertyStack.OriginalValue;
@@ -267,7 +339,6 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
         _propertyStack = propertyStack;
         _propertyFrame = propertyFrame;
         _isApplied = true;
-        return true;
     }
 
     private bool RevertStackedValue(object targetObject)
@@ -283,7 +354,26 @@ public class ChangePropertyAction : StyledElementAction, IReversibleAction
         }
 
         var wasTopFrame = frameIndex == propertyStack.Frames.Count - 1;
-        if (wasTopFrame)
+        if (propertyStack.UseTemporaryValues)
+        {
+            propertyFrame.TemporaryValue?.Dispose();
+            if (wasTopFrame && frameIndex > 0)
+            {
+                var precedingFrame = propertyStack.Frames[frameIndex - 1];
+                if (!PropertyHelper.TrySetTemporaryAvaloniaPropertyValue(
+                        targetObject,
+                        propertyName,
+                        precedingFrame.Value,
+                        out var replacementTemporaryValue))
+                {
+                    return false;
+                }
+
+                precedingFrame.TemporaryValue?.Dispose();
+                precedingFrame.TemporaryValue = replacementTemporaryValue;
+            }
+        }
+        else if (wasTopFrame)
         {
             var restoredValue = frameIndex > 0
                 ? propertyStack.Frames[frameIndex - 1].Value

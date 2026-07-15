@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
+using Avalonia.Data;
 
 namespace Avalonia.Xaml.Interactivity;
 
@@ -204,34 +205,7 @@ internal static class PropertyHelper
         Exception? innerException = null;
         try
         {
-            object? result = null;
-            var propertyType = property.PropertyType;
-            var propertyTypeInfo = propertyType.GetTypeInfo();
-            if (value is null)
-            {
-                // The result can be null if the type is generic (nullable), or the default value of the type in question
-                result = propertyTypeInfo.IsValueType ? Activator.CreateInstance(propertyType) : null;
-            }
-            else if (propertyTypeInfo.IsAssignableFrom(value.GetType().GetTypeInfo()))
-            {
-                result = value;
-            }
-            else
-            {
-                var valueAsString = value.ToString();
-                if (valueAsString is not null)
-                {
-                    if (propertyTypeInfo.IsEnum)
-                    {
-                        result = Enum.Parse(propertyType, valueAsString, false);
-                    }
-                    else
-                    {
-                        var convert = TypeConverterHelper.Convert(valueAsString, propertyType);
-                        result = convert ?? value;
-                    }
-                }
-            }
+            var result = ConvertAvaloniaPropertyValue(property, value);
 
             if (preserveValueSource)
             {
@@ -261,6 +235,87 @@ internal static class PropertyHelper
                     avaloniaObject.GetType().Name),
                 innerException);
         }
+    }
+
+    public static bool TrySetTemporaryAvaloniaPropertyValue(
+        object targetObject,
+        string propertyName,
+        object? value,
+        out IDisposable? reversion)
+    {
+        reversion = null;
+        if (targetObject is not AvaloniaObject avaloniaObject)
+        {
+            return false;
+        }
+
+        var property = propertyName.Contains('.')
+            ? FindAvaloniaAttachedProperty(targetObject, propertyName)
+            : AvaloniaPropertyRegistry.Instance.FindRegistered(avaloniaObject, propertyName);
+        if (property is null || property.IsDirect)
+        {
+            return false;
+        }
+
+        ValidateAvaloniaProperty(property, propertyName);
+        try
+        {
+            var result = ConvertAvaloniaPropertyValue(property, value);
+            reversion = avaloniaObject.SetValue(property, result, BindingPriority.Animation);
+            return reversion is not null;
+        }
+        catch (FormatException e)
+        {
+            throw CreateInvalidAssignmentException(avaloniaObject, propertyName, value, e);
+        }
+        catch (ArgumentException e)
+        {
+            throw CreateInvalidAssignmentException(avaloniaObject, propertyName, value, e);
+        }
+    }
+
+    private static object? ConvertAvaloniaPropertyValue(AvaloniaProperty property, object? value)
+    {
+        var propertyType = property.PropertyType;
+        var propertyTypeInfo = propertyType.GetTypeInfo();
+        if (value is null)
+        {
+            return propertyTypeInfo.IsValueType ? Activator.CreateInstance(propertyType) : null;
+        }
+
+        if (propertyTypeInfo.IsAssignableFrom(value.GetType().GetTypeInfo()))
+        {
+            return value;
+        }
+
+        var valueAsString = value.ToString();
+        if (valueAsString is null)
+        {
+            return null;
+        }
+
+        if (propertyTypeInfo.IsEnum)
+        {
+            return Enum.Parse(propertyType, valueAsString, false);
+        }
+
+        var converted = TypeConverterHelper.Convert(valueAsString, propertyType);
+        return converted ?? value;
+    }
+
+    private static ArgumentException CreateInvalidAssignmentException(
+        AvaloniaObject avaloniaObject,
+        string propertyName,
+        object? value,
+        Exception innerException)
+    {
+        return new ArgumentException(string.Format(
+                CultureInfo.CurrentCulture,
+                "Cannot assign value of type {0} to property {1} of type {2}. The {1} property can be assigned only values of type {2}.",
+                value?.GetType().Name ?? "null",
+                propertyName,
+                avaloniaObject.GetType().Name),
+            innerException);
     }
 
     public static bool UpdatePropertyValue(

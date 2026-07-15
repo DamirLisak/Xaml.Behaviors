@@ -85,6 +85,33 @@ public class ChangePropertyActionTests
 
     [AvaloniaFact]
     [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
+    public void Revert_Restores_Latest_Styled_Property_Source_Value()
+    {
+        var target = new TextBlock();
+        target.Classes.Add("first");
+
+        var window = new Window { Content = target };
+        window.Styles.Add(CreateTextStyle("first", "First"));
+        window.Styles.Add(CreateTextStyle("second", "Second"));
+        window.Show();
+        var action = new ChangePropertyAction
+        {
+            PropertyName = nameof(TextBlock.Text),
+            Value = "Applied"
+        };
+
+        Assert.True((bool)((IReversibleAction)action).ExecuteReversibly(target, null)!);
+        target.Classes.Remove("first");
+        target.Classes.Add("second");
+
+        Assert.Equal("Applied", target.Text);
+        Assert.True((bool)action.Revert(target, null));
+        Assert.Equal("Second", target.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    [RequiresUnreferencedCode("Test intentionally exercises reflection-based property lookup.")]
     public void Execute_Preserves_Legacy_Local_Value_Semantics()
     {
         var target = new TextBlock();
@@ -154,8 +181,11 @@ public class ChangePropertyActionTests
 
         Assert.True((bool)((IReversibleAction)first).ExecuteReversibly(target, null)!);
         Assert.True((bool)((IReversibleAction)second).ExecuteReversibly(target, null)!);
+        first.Value = "UpdatedFirst";
+        Assert.True((bool)((IReversibleAction)first).ExecuteReversibly(target, null)!);
+        Assert.Equal("Second", target.Text);
         Assert.True((bool)second.Revert(target, null));
-        Assert.Equal("First", target.Text);
+        Assert.Equal("UpdatedFirst", target.Text);
         Assert.True((bool)first.Revert(target, null));
         Assert.Equal("Original", target.Text);
     }
