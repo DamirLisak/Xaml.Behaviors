@@ -149,23 +149,20 @@ namespace Xaml.Behaviors.SourceGenerators
             {
                 sb.AppendLine("                var version = Interlocked.Increment(ref _reversibleVersion);");
                 sb.AppendLine("                Volatile.Write(ref _reversibleState, 1);");
-                sb.AppendLine("                Avalonia.Threading.Dispatcher.UIThread.Post(() =>");
+                sb.AppendLine("                var applied = Avalonia.Threading.Dispatcher.UIThread.CheckAccess()");
+                sb.AppendLine("                    ? ApplyReversibleCore(typedTarget)");
+                sb.AppendLine("                    : Avalonia.Threading.Dispatcher.UIThread.Invoke(() =>");
+                sb.AppendLine("                        Volatile.Read(ref _reversibleVersion) == version &&");
+                sb.AppendLine("                        ApplyReversibleCore(typedTarget));");
+                sb.AppendLine("                if (!applied && Volatile.Read(ref _reversibleVersion) == version)");
                 sb.AppendLine("                {");
-                sb.AppendLine("                    if (Volatile.Read(ref _reversibleVersion) != version)");
-                sb.AppendLine("                    {");
-                sb.AppendLine("                        return;");
-                sb.AppendLine("                    }");
-                sb.AppendLine();
-                sb.AppendLine("                    ApplyReversibleCore(typedTarget);");
-                sb.AppendLine("                });");
+                sb.AppendLine("                    Volatile.Write(ref _reversibleState, 0);");
+                sb.AppendLine("                }");
+                sb.AppendLine("                return applied;");
             }
             else
             {
                 sb.AppendLine("                return ApplyReversibleCore(typedTarget);");
-            }
-            if (info.UseDispatcher)
-            {
-                sb.AppendLine("                return true;");
             }
             sb.AppendLine("            }");
             sb.AppendLine("            return false;");
@@ -181,17 +178,15 @@ namespace Xaml.Behaviors.SourceGenerators
                 sb.AppendLine("            }");
                 sb.AppendLine();
                 sb.AppendLine("            var version = Interlocked.Increment(ref _reversibleVersion);");
-                sb.AppendLine("            Avalonia.Threading.Dispatcher.UIThread.Post(() =>");
+                sb.AppendLine("            var reverted = Avalonia.Threading.Dispatcher.UIThread.CheckAccess()");
+                sb.AppendLine("                ? RevertCore()");
+                sb.AppendLine("                : Avalonia.Threading.Dispatcher.UIThread.Invoke(() =>");
+                sb.AppendLine("                    Volatile.Read(ref _reversibleVersion) == version && RevertCore());");
+                sb.AppendLine("            if (Volatile.Read(ref _reversibleVersion) == version)");
                 sb.AppendLine("            {");
-                sb.AppendLine("                if (Volatile.Read(ref _reversibleVersion) != version)");
-                sb.AppendLine("                {");
-                sb.AppendLine("                    return;");
-                sb.AppendLine("                }");
-                sb.AppendLine();
-                sb.AppendLine("                RevertCore();");
                 sb.AppendLine("                Volatile.Write(ref _reversibleState, 0);");
-                sb.AppendLine("            });");
-                sb.AppendLine("            return true;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            return reverted;");
             }
             else
             {
