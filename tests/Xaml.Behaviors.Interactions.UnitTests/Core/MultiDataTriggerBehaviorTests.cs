@@ -188,6 +188,35 @@ public class MultiDataTriggerBehaviorTests
     }
 
     [AvaloniaFact]
+    public void MultiDataTriggerBehavior_003_Reconciles_Reversible_State_When_IsEnabled_Changes()
+    {
+        var window = new MultiDataTriggerBehavior003();
+        window.Show();
+        var behavior = Assert.IsType<MultiDataTriggerBehavior>(Assert.Single(
+            Interaction.GetBehaviors(window.TargetTextBlock)));
+        window.Click(window.TargetCheckBox);
+        window.TargetSlider.Focus();
+        window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+
+        behavior.IsEnabled = false;
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+
+        behavior.IsEnabled = true;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+
+        behavior.IsEnabled = false;
+        window.Click(window.TargetCheckBox);
+        behavior.IsEnabled = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     [RequiresUnreferencedCode("Test intentionally exercises reflection-based property actions.")]
     public void MultiDataTriggerBehavior_003_Reverts_And_Clears_State_When_Removed()
     {

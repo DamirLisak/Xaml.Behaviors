@@ -125,6 +125,32 @@ public class DataTriggerBehaviorTests
     }
 
     [AvaloniaFact]
+    public void DataTriggerBehavior_004_Reconciles_Reversible_State_When_IsEnabled_Changes()
+    {
+        var window = new DataTriggerBehavior004();
+        window.Show();
+        var behavior = Assert.IsType<DataTriggerBehavior>(Assert.Single(
+            Interaction.GetBehaviors(window.TargetTextBlock)));
+        window.Click(window.TargetCheckBox);
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+
+        behavior.IsEnabled = false;
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+
+        behavior.IsEnabled = true;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+
+        behavior.IsEnabled = false;
+        window.Click(window.TargetCheckBox);
+        behavior.IsEnabled = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Red", window.TargetTextBlock.Text);
+        window.Close();
+    }
+
+    [AvaloniaFact]
     [RequiresUnreferencedCode("Test intentionally exercises reflection-based property actions.")]
     public void DataTriggerBehavior_004_Reverts_And_Clears_State_When_Removed()
     {

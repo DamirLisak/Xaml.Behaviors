@@ -98,6 +98,21 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
             ScheduleExecute(change);
         }
 
+        if (change.Property == IsEnabledProperty && RevertOnFalse)
+        {
+            var isEnabled = change.GetNewValue<bool>();
+            if (!isEnabled)
+            {
+                RevertActions(change);
+            }
+
+            _hasConditionState = false;
+            if (isEnabled)
+            {
+                ScheduleExecute(change);
+            }
+        }
+
         if (change.Property == ActionsProperty && AssociatedObject is not null)
         {
             UpdateActionSubscription(change.GetNewValue<ActionCollection?>());

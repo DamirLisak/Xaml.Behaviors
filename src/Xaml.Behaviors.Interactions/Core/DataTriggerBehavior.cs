@@ -111,6 +111,21 @@ public class DataTriggerBehavior : StyledElementTrigger
             OnValueChanged(change);
         }
 
+        if (change.Property == IsEnabledProperty && RevertOnFalse)
+        {
+            var isEnabled = change.GetNewValue<bool>();
+            if (!isEnabled)
+            {
+                RevertActions(change);
+            }
+
+            _hasConditionState = false;
+            if (isEnabled)
+            {
+                OnValueChanged(change);
+            }
+        }
+
         if (change.Property == ActionsProperty && AssociatedObject is not null)
         {
             UpdateActionSubscription(change.GetNewValue<ActionCollection?>());
