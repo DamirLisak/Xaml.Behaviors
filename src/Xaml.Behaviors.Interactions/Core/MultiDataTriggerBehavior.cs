@@ -87,6 +87,11 @@ public class MultiDataTriggerBehavior : StyledElementTrigger
 
         if (change.Property == RevertOnFalseProperty)
         {
+            if (change.GetOldValue<bool>() && !change.GetNewValue<bool>())
+            {
+                RevertActions(change);
+            }
+
             _hasConditionState = false;
             ScheduleExecute(change);
         }

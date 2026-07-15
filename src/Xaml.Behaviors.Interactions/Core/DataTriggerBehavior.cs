@@ -98,6 +98,11 @@ public class DataTriggerBehavior : StyledElementTrigger
 
         if (change.Property == RevertOnFalseProperty)
         {
+            if (change.GetOldValue<bool>() && !change.GetNewValue<bool>())
+            {
+                RevertActions(change);
+            }
+
             _hasConditionState = false;
             OnValueChanged(change);
         }

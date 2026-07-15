@@ -1,6 +1,9 @@
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Threading;
+using Avalonia.Xaml.Interactions.Core;
+using Avalonia.Xaml.Interactivity;
 using Xunit;
 
 namespace Avalonia.Xaml.Interactions.UnitTests.Core;
@@ -95,5 +98,28 @@ public class DataTriggerBehaviorTests
 
         Assert.Equal("Red", window.TargetTextBlock.Text);
         Assert.False(window.TargetCheckBox.IsChecked);
+    }
+
+    [AvaloniaFact]
+    public void DataTriggerBehavior_004_Clears_Reversible_State_When_Disabled()
+    {
+        var window = new DataTriggerBehavior004();
+        window.Show();
+        var behavior = Assert.IsType<DataTriggerBehavior>(Assert.Single(
+            Interaction.GetBehaviors(window.TargetTextBlock)));
+
+        window.Click(window.TargetCheckBox);
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+
+        behavior.RevertOnFalse = false;
+        Dispatcher.UIThread.RunJobs();
+        window.TargetTextBlock.Text = "External";
+        behavior.RevertOnFalse = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+        window.Click(window.TargetCheckBox);
+        Assert.Equal("External", window.TargetTextBlock.Text);
+        window.Close();
     }
 }

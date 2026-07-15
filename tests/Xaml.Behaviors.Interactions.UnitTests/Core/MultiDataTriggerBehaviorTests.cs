@@ -157,6 +157,32 @@ public class MultiDataTriggerBehaviorTests
         window.Close();
     }
 
+    [AvaloniaFact]
+    public void MultiDataTriggerBehavior_003_Clears_Reversible_State_When_Disabled()
+    {
+        var window = new MultiDataTriggerBehavior003();
+        window.Show();
+        var behavior = Assert.IsType<MultiDataTriggerBehavior>(Assert.Single(
+            Interaction.GetBehaviors(window.TargetTextBlock)));
+        window.Click(window.TargetCheckBox);
+        window.TargetSlider.Focus();
+        window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+
+        behavior.RevertOnFalse = false;
+        Dispatcher.UIThread.RunJobs();
+        window.TargetTextBlock.Text = "External";
+        behavior.RevertOnFalse = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("Green", window.TargetTextBlock.Text);
+        window.Click(window.TargetCheckBox);
+        Assert.Equal("External", window.TargetTextBlock.Text);
+        window.Close();
+    }
+
+    [RequiresUnreferencedCode("Test helper intentionally constructs a reflection-based trigger.")]
     private static MultiDataTriggerBehavior CreateBehavior(bool revertOnFalse, ExecutionPathAction action)
     {
         return new MultiDataTriggerBehavior
